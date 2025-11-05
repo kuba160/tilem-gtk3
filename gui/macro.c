@@ -71,7 +71,7 @@ void tilem_macro_start(TilemCalcEmulator *emu) {
 	tilem_macro_finalize(emu->macro);
 
 	/* Then allocate a new one */	
-	emu->macro = tilem_macro_new(emu);
+	emu->macro = tilem_macro_new();
 }
 
 /* Add an action to the macro. The action could be :
