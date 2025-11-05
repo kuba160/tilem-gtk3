@@ -317,6 +317,10 @@ static void skin_size_allocate(GtkWidget *widget, GtkAllocation *alloc,
 	lcdtop = ewin->skin->lcd_pos.top * r + 0.5;
 	lcdbottom = ewin->skin->lcd_pos.bottom * r + 0.5;
 
+	// Always scale background to window size
+	if (ewin->skin) {
+		gtk_widget_set_size_request(GTK_WIDGET(ewin->background), scaledwidth, scaledheight);
+	}
 	gtk_widget_set_size_request(ewin->lcd,
 	                            MAX(lcdright - lcdleft, 1),
 	                            MAX(lcdbottom - lcdtop, 1));
@@ -502,6 +506,28 @@ void redraw_screen(TilemEmulatorWindow *ewin)
 	set_size_hints(ewin->window, ewin);
 
 	gtk_widget_set_size_request(emuwin, minwidth, minheight);
+
+	// hack to set correct sizes and positions
+	if (ewin->skin) {
+		gtk_widget_set_size_request(GTK_WIDGET(ewin->background), curwidth, curheight);
+		// readjust the lcd position and size
+		float rx = (double) curwidth / defwidth;
+		float ry = (double) curheight / defheight;
+		float r = MIN(rx, ry);
+
+		int lcdleft = ewin->skin->lcd_pos.left * r + 0.5;
+		int lcdright = ewin->skin->lcd_pos.right * r + 0.5;
+		int lcdtop = ewin->skin->lcd_pos.top * r + 0.5;
+		int lcdbottom = ewin->skin->lcd_pos.bottom * r + 0.5;
+
+		gtk_widget_set_size_request(ewin->lcd,
+		                            MAX(lcdright - lcdleft, 1),
+		                            MAX(lcdbottom - lcdtop, 1));
+		gtk_layout_move(GTK_LAYOUT(ewin->layout), ewin->lcd,
+               lcdleft,
+               lcdtop);
+	}
+
 	gtk_container_add(GTK_CONTAINER(ewin->window), emuwin);
 
 	if (!window_maximized(ewin))
