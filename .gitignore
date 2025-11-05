@@ -1,0 +1,5 @@
+Makefile
+*.o
+*.a
+gui/tilem2
+config.*
