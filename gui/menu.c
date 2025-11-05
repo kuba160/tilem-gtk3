@@ -228,7 +228,7 @@ static const GtkActionEntry main_action_ents[] =
 	   G_CALLBACK(action_quick_screenshot) },
 
 	 { "preferences",
-	   "_Preferences", 0, 0,
+	   "configure", N_("_Preferences"), 0,
 	   N_("Edit emulator settings"),
 	   G_CALLBACK(action_preferences) },
 
