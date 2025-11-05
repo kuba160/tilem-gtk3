@@ -36,6 +36,12 @@
 /* Zoom mode settings */
 enum { ZMODE_64, ZMODE_240 };
 
+// hack to pass skin colors
+typedef struct skin_colors_s {
+	int off[3]; // R G B
+	int on[3];
+} skin_colors_t;
+
 /* Set size hints for the toplevel window */
 static void set_size_hints(GtkWidget *widget, gpointer data)
 {
@@ -72,7 +78,7 @@ static gboolean window_maximized(TilemEmulatorWindow *ewin)
 }
 
 static void
-put_pixel (GdkPixbuf *pixbuf, int x, int y, gboolean pixel_is_on)
+put_pixel (GdkPixbuf *pixbuf, int x, int y, gboolean pixel_is_on, skin_colors_t *colors)
 {
 	int width, height, rowstride, n_channels;
 	guchar *pixels, *p;
@@ -94,13 +100,13 @@ put_pixel (GdkPixbuf *pixbuf, int x, int y, gboolean pixel_is_on)
 
 	p = pixels + y * rowstride + x * n_channels;
 	if(pixel_is_on) {
-		p[0] = 0;
-		p[1] = 0;
-		p[2] = 0;
+		p[0] = colors->on[0];
+		p[1] = colors->on[1];
+		p[2] = colors->on[2];
 	} else {
-		p[0] = 255;
-		p[1] = 255;
-		p[2] = 255;
+		p[0] = colors->off[0];
+		p[1] = colors->off[1];
+		p[2] = colors->off[2];
 	}
 		
 }
@@ -155,6 +161,33 @@ static gboolean screen_repaint(GtkWidget *w, cairo_t *cr,
 
 	/* Render buffer to the screen */
 
+
+	skin_colors_t colors;
+	if (!ewin->skin) {
+		/* no skin -> use standard GTK colors */
+
+		style = gtk_widget_get_style(w);
+
+		colors.on[0] = style->text[GTK_STATE_NORMAL].red / 257;
+		colors.on[1] = style->text[GTK_STATE_NORMAL].green / 257;
+		colors.on[2] = style->text[GTK_STATE_NORMAL].blue / 257;
+
+		colors.off[0] = style->base[GTK_STATE_NORMAL].red / 257;
+		colors.off[1] = style->base[GTK_STATE_NORMAL].green / 257;
+		colors.off[2] = style->base[GTK_STATE_NORMAL].blue / 257;
+	}
+	else {
+		/* use skin colors */
+
+		colors.on[0] = ((ewin->skin->lcd_black >> 16) & 0xff);
+		colors.on[1] = ((ewin->skin->lcd_black >> 8) & 0xff);
+		colors.on[2] = (ewin->skin->lcd_black & 0xff);
+
+		colors.off[0] = ((ewin->skin->lcd_white >> 16) & 0xff);
+		colors.off[1] = ((ewin->skin->lcd_white >> 8) & 0xff);
+		colors.off[2] = (ewin->skin->lcd_white & 0xff);
+	}
+
 	win = gtk_widget_get_window(w);
 	
 	GdkPixbuf* pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8, alloc.width, alloc.height);
@@ -162,9 +195,9 @@ static gboolean screen_repaint(GtkWidget *w, cairo_t *cr,
 	for(y = 0; y < alloc.height; y++) {
 		for(x = 0; x < alloc.width; x++) {
 			if(ewin->lcd_image_buf[(y*alloc.width)+x] > 128) {
-				put_pixel(pixbuf, x, y, TRUE);
+				put_pixel(pixbuf, x, y, TRUE, &colors);
 			} else {
-				put_pixel(pixbuf, x, y, FALSE);
+				put_pixel(pixbuf, x, y, FALSE, &colors);
 			}
 		}
 	}
