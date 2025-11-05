@@ -1,7 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2011 Benjamin Moody
+ * Copyright (c) 2011-2013 Benjamin Moody
+ * Copyright (c) 2017 Thibault Duponchelle
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -67,10 +68,10 @@ static const struct {
 	int use_pages;
 	guint access_mask;
 } type_info[] = {
-	{ 'M', "Memory address (logical)", "Address", 0, 7 },
-	{ 'M', "Memory address (absolute)", "Address", 1, 7 },
-	{ 'P', "I/O port", "Port Number", 0, 6 },
-	{ 'I', "Z80 instruction", "Opcode", 0, 0 }
+	{ 'M', N_("Memory address (logical)"), N_("Address"), 0, 7 },
+	{ 'M', N_("Memory address (absolute)"), N_("Address"), 1, 7 },
+	{ 'P', N_("I/O port"), N_("Port Number"), 0, 6 },
+	{ 'I', N_("Z80 instruction"), N_("Opcode"), 0, 0 }
 };
 
 /* Determine currently selected address type */
@@ -85,13 +86,13 @@ static void hex_entry_set_value(struct hex_entry *he, TilemDebugger *dbg,
                                 int type, dword value)
 {
 	const TilemCalc *calc;
-	char buf[20];
-	unsigned int page;
-
-	g_return_if_fail(dbg->emu != NULL);
-	g_return_if_fail(dbg->emu->calc != NULL);
+	char buf[20], *str, *sep;
 
 	calc = dbg->emu->calc;
+
+	g_return_if_fail(dbg->emu != NULL);
+	g_return_if_fail(calc != NULL);
+
 
 	switch (type) {
 	case TILEM_DB_BREAK_LOGICAL:
@@ -99,18 +100,18 @@ static void hex_entry_set_value(struct hex_entry *he, TilemDebugger *dbg,
 		break;
 
 	case TILEM_DB_BREAK_PHYSICAL:
-		if (value >= calc->hw.romsize) {
-			value -= calc->hw.romsize;
-			page = (value >> 14) + calc->hw.rampagemask;
+		str = tilem_format_addr(dbg, value, TRUE);
+		sep = strrchr(str, ':');
+		if (sep) {
+			*sep = 0;
+			g_strlcpy(buf, sep + 1, sizeof(buf));
+			gtk_entry_set_text(GTK_ENTRY(he->page_entry), str);
 		}
 		else {
-			page = (value >> 14);
+			g_strlcpy(buf, str, sizeof(buf));
+			gtk_entry_set_text(GTK_ENTRY(he->page_entry), "");
 		}
-
-		g_snprintf(buf, sizeof(buf), "%02X", page);
-		gtk_entry_set_text(GTK_ENTRY(he->page_entry), buf);
-
-		g_snprintf(buf, sizeof(buf), "%04X", value & 0x3fff);
+		g_free(str);
 		break;
 
 	case TILEM_DB_BREAK_PORT:
@@ -169,34 +170,19 @@ static gboolean hex_entry_parse_value(struct hex_entry *he, TilemDebugger *dbg,
                                       int type, dword *value)
 {
 	const TilemCalc *calc = dbg->emu->calc;
-	dword page;
-	const char *s;
+	const char *s, *s2;
 
 	g_return_val_if_fail(calc != NULL, 0);
+
+	if (type == TILEM_DB_BREAK_PHYSICAL) {
+		s = gtk_entry_get_text(GTK_ENTRY(he->addr_entry));
+		s2 = gtk_entry_get_text(GTK_ENTRY(he->page_entry));
+		return tilem_parse_paged_addr(dbg, s2, s, value);
+	}
 
 	s = gtk_entry_get_text(GTK_ENTRY(he->addr_entry));
 	if (!parse_num(dbg, s, value))
 		return FALSE;
-
-	if (type != TILEM_DB_BREAK_PHYSICAL)
-		return TRUE;
-
-	s = gtk_entry_get_text(GTK_ENTRY(he->page_entry));
-	if (!parse_num(dbg, s, &page))
-		return FALSE;
-
-	*value &= 0x3fff;
-
-	if (page >= calc->hw.rampagemask) {
-		*value += ((page - calc->hw.rampagemask) << 14);
-		*value %= calc->hw.ramsize;
-		*value += calc->hw.romsize;
-	}
-	else {
-		*value += (page << 14);
-		*value %= calc->hw.romsize;
-	}
-
 	return TRUE;
 }
 
@@ -289,7 +275,7 @@ static void addr_type_changed(G_GNUC_UNUSED GtkComboBox *combo, gpointer data)
 	gboolean range = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(bpdlg->range_rb));
 	char *s;
 
-	s = g_strdup_printf("<b>%s</b>", type_info[type].value_label);
+	s = g_strdup_printf("<b>%s</b>", _(type_info[type].value_label));
 	gtk_label_set_markup(GTK_LABEL(bpdlg->address_label), s);
 	g_free(s);
 
@@ -306,13 +292,13 @@ static void addr_type_changed(G_GNUC_UNUSED GtkComboBox *combo, gpointer data)
 
 	if (range) {
 		gtk_label_set_text_with_mnemonic(GTK_LABEL(bpdlg->start.addr_label),
-		                                 "_Start:");
+		                                 _("_Start:"));
 		gtk_widget_show(bpdlg->end.addr_label);
 		gtk_widget_show(bpdlg->end.addr_entry);
 	}
 	else {
 		gtk_label_set_text_with_mnemonic(GTK_LABEL(bpdlg->start.addr_label),
-		                                 "_Value:");
+		                                 _("_Value:"));
 		gtk_widget_hide(bpdlg->end.addr_label);
 		gtk_widget_hide(bpdlg->end.addr_entry);
 	}
@@ -361,9 +347,9 @@ static gboolean entry_key_event(G_GNUC_UNUSED GtkWidget *entry,
 	if (ev->state & GDK_MODIFIER_MASK)
 		return FALSE;
 
-	if (ev->keyval != GDK_Return
-	    && ev->keyval != GDK_KP_Enter
-	    && ev->keyval != GDK_ISO_Enter)
+	if (ev->keyval != GDK_KEY_Return
+	    && ev->keyval != GDK_KEY_KP_Enter
+	    && ev->keyval != GDK_KEY_ISO_Enter)
 		return FALSE;
 
 	if (parse_input(bpdlg, &tmpbp))
@@ -376,38 +362,32 @@ static gboolean entry_key_event(G_GNUC_UNUSED GtkWidget *entry,
 
 static void init_hex_entry(struct breakpoint_dlg *bpdlg,
                            struct hex_entry *he, const char *label,
-                           GtkTable *tbl, int ypos)
+                           GtkGrid *grd, int ypos)
 {
-	GtkWidget *align, *lbl;
+	GtkWidget *lbl;
 
 	he->addr_label = lbl = gtk_label_new_with_mnemonic(label);
-	gtk_misc_set_alignment(GTK_MISC(lbl), LABEL_X_ALIGN, 0.5);
-	align = gtk_alignment_new(0.5, 0.5, 1.0, 1.0);
-	gtk_alignment_set_padding(GTK_ALIGNMENT(align), 0, 0, 12, 6);
-	gtk_container_add(GTK_CONTAINER(align), lbl);
-	gtk_table_attach(tbl, align, 0, 1, ypos, ypos + 1,
-	                 GTK_FILL, GTK_FILL, 0, 0);
+	gtk_widget_set_halign(lbl, GTK_ALIGN_CENTER);
+	gtk_widget_set_valign(lbl, GTK_ALIGN_CENTER);
+	gtk_grid_attach(grd, lbl, 0, ypos, 1, 1);
 
 	he->addr_entry = gtk_entry_new();
 	gtk_label_set_mnemonic_widget(GTK_LABEL(lbl), he->addr_entry);
-	gtk_table_attach(tbl, he->addr_entry, 1, 2, ypos, ypos + 1,
-	                 GTK_EXPAND | GTK_FILL, GTK_FILL, 0, 0);
+	gtk_grid_attach(grd, he->addr_entry, 1, ypos, 1, 1);
 
 	g_signal_connect(he->addr_entry, "changed",
 	                 G_CALLBACK(entry_edited), bpdlg);
 	g_signal_connect(he->addr_entry, "key-press-event",
 	                 G_CALLBACK(entry_key_event), bpdlg);
 
-	he->page_label = lbl = gtk_label_new("Page:");
-	gtk_misc_set_alignment(GTK_MISC(lbl), LABEL_X_ALIGN, 0.5);
-	gtk_table_attach(tbl, lbl, 2, 3, ypos, ypos + 1,
-	                 GTK_FILL, GTK_FILL, 6, 0);
+	he->page_label = lbl = gtk_label_new(_("Page:"));
+	gtk_widget_set_halign(lbl, GTK_ALIGN_CENTER);
+	gtk_grid_attach(grd, lbl, 2, ypos, 1, 1);
 
 	he->page_entry = gtk_entry_new();
 	gtk_entry_set_width_chars(GTK_ENTRY(he->page_entry), 5);
 	gtk_label_set_mnemonic_widget(GTK_LABEL(lbl), he->page_entry);
-	gtk_table_attach(tbl, he->page_entry, 3, 4, ypos, ypos + 1,
-	                 GTK_FILL, GTK_FILL, 0, 0);
+	gtk_grid_attach(grd, he->page_entry, 3, ypos, 1, 1);
 
 	g_signal_connect(he->page_entry, "changed",
 	                 G_CALLBACK(entry_edited), bpdlg);
@@ -419,9 +399,10 @@ static gboolean edit_breakpoint(TilemDebugger *dbg,
                                 GtkWindow *parent_window,
                                 const char *title,
                                 TilemDebugBreakpoint *bp,
-                                gboolean edit_existing)
+                                gboolean edit_existing,
+                                gboolean edit_endaddr)
 {
-	GtkWidget *dlg, *vbox, *frame, *tbl, *hbox, *lbl, *combo, *cb, *rb;
+	GtkWidget *dlg, *vbox, *frame, *grd, *hbox, *lbl, *combo, *cb, *rb;
 	struct breakpoint_dlg bpdlg;
 	gsize i;
 
@@ -434,61 +415,56 @@ static gboolean edit_breakpoint(TilemDebugger *dbg,
 
 	dlg = gtk_dialog_new_with_buttons(title, parent_window,
 	                                  GTK_DIALOG_MODAL,
-	                                  GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-	                                  GTK_STOCK_OK, GTK_RESPONSE_OK,
+	                                  _("Cancel"), GTK_RESPONSE_CANCEL,
+	                                  _("OK"), GTK_RESPONSE_OK,
 	                                  NULL);
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(dlg),
-	                                        GTK_RESPONSE_OK,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
+
 	gtk_dialog_set_default_response(GTK_DIALOG(dlg),
 	                                GTK_RESPONSE_OK);
 
 	bpdlg.dlg = dlg;
 
-	bpdlg.box = gtk_vbox_new(FALSE, 6);
+	bpdlg.box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_container_set_border_width(GTK_CONTAINER(bpdlg.box), 6);
 
-	tbl = gtk_table_new(2, 2, FALSE);
-	gtk_table_set_row_spacings(GTK_TABLE(tbl), 6);
-	gtk_table_set_col_spacings(GTK_TABLE(tbl), 6);
+	grd = gtk_grid_new();
+	gtk_grid_set_row_spacing(GTK_GRID(grd), 6);
+	gtk_grid_set_column_spacing(GTK_GRID(grd), 6);
 
 	/* Breakpoint type */
 
-	lbl = gtk_label_new_with_mnemonic("Breakpoint _type:");
-	gtk_misc_set_alignment(GTK_MISC(lbl), LABEL_X_ALIGN, 0.5);
-	gtk_table_attach(GTK_TABLE(tbl), lbl, 0, 1, 0, 1,
-	                 GTK_FILL, GTK_FILL, 0, 0);
+	lbl = gtk_label_new_with_mnemonic(_("Breakpoint _type:"));
+	gtk_widget_set_halign(lbl, GTK_ALIGN_CENTER);
 
-	combo = gtk_combo_box_new_text();
+	gtk_grid_attach(GTK_GRID(grd), lbl, 0, 0, 1, 1);
+
+	combo = gtk_combo_box_text_new();
 	for (i = 0; i < G_N_ELEMENTS(type_info); i++)
-		gtk_combo_box_append_text(GTK_COMBO_BOX(combo), type_info[i].desc);
+		gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), _(type_info[i].desc));
 
 	bpdlg.type_combo = combo;
 	gtk_label_set_mnemonic_widget(GTK_LABEL(lbl), combo);
-	gtk_table_attach(GTK_TABLE(tbl), combo, 1, 2, 0, 1,
-	                 GTK_EXPAND | GTK_FILL, GTK_FILL, 0, 0);
+	gtk_grid_attach(GTK_GRID(grd), combo, 1, 0, 1, 1); 
 
 	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), bp->type);
 
 	/* Access mode */
 
-	bpdlg.access_label = lbl = gtk_label_new("Break when:");
-	gtk_misc_set_alignment(GTK_MISC(lbl), LABEL_X_ALIGN, 0.5);
-	gtk_table_attach(GTK_TABLE(tbl), lbl, 0, 1, 1, 2,
-	                 GTK_FILL, GTK_FILL, 0, 0);
+	bpdlg.access_label = lbl = gtk_label_new(_("Break when:"));
+	gtk_widget_set_halign(lbl, GTK_ALIGN_CENTER);
+	gtk_grid_attach(GTK_GRID(grd), lbl, 0, 1, 1, 1);
 
-	hbox = gtk_hbox_new(FALSE, 6);
+	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
-	cb = gtk_check_button_new_with_mnemonic("_Reading");
+	cb = gtk_check_button_new_with_mnemonic(_("_Reading"));
 	gtk_box_pack_start(GTK_BOX(hbox), cb, FALSE, FALSE, 0);
 	bpdlg.access_cb[2] = cb;
 
-	cb = gtk_check_button_new_with_mnemonic("_Writing");
+	cb = gtk_check_button_new_with_mnemonic(_("_Writing"));
 	gtk_box_pack_start(GTK_BOX(hbox), cb, FALSE, FALSE, 0);
 	bpdlg.access_cb[1] = cb;
 
-	cb = gtk_check_button_new_with_mnemonic("E_xecuting");
+	cb = gtk_check_button_new_with_mnemonic(_("E_xecuting"));
 	gtk_box_pack_start(GTK_BOX(hbox), cb, FALSE, FALSE, 0);
 	bpdlg.access_cb[0] = cb;
 
@@ -499,37 +475,35 @@ static gboolean edit_breakpoint(TilemDebugger *dbg,
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bpdlg.access_cb[2]),
 	                             bp->mode & 4);
 
-	gtk_table_attach(GTK_TABLE(tbl), hbox, 1, 2, 1, 2,
-	                 GTK_EXPAND | GTK_FILL, GTK_FILL, 0, 0);
+	gtk_grid_attach(GTK_GRID(grd), hbox, 1, 1, 1, 1);
 
-	frame = new_frame("Breakpoint Condition", tbl);
+	frame = new_frame(_("Breakpoint Condition"), grd);
 	gtk_box_pack_start(GTK_BOX(bpdlg.box), frame, FALSE, FALSE, 0);
 
 	/* Addresses */
 
-	tbl = gtk_table_new(3, 4, FALSE);
-	gtk_table_set_row_spacings(GTK_TABLE(tbl), 6);
+	grd = gtk_grid_new();
+	gtk_grid_set_column_spacing(GTK_GRID(grd), 6);
 
-	hbox = gtk_hbox_new(FALSE, 6);
+	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
-	rb = gtk_radio_button_new_with_mnemonic(NULL, "Si_ngle");
+	rb = gtk_radio_button_new_with_mnemonic(NULL, _("Si_ngle"));
 	gtk_box_pack_start(GTK_BOX(hbox), rb, FALSE, FALSE, 0);
 	bpdlg.single_rb = rb;
 
-	rb = gtk_radio_button_new_with_mnemonic_from_widget(GTK_RADIO_BUTTON(rb), "R_ange");
+	rb = gtk_radio_button_new_with_mnemonic_from_widget(GTK_RADIO_BUTTON(rb), _("R_ange"));
 	gtk_box_pack_start(GTK_BOX(hbox), rb, FALSE, FALSE, 0);
 	bpdlg.range_rb = rb;
 
 	if (edit_existing && bp->end != bp->start)
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(rb), TRUE);
 
-	gtk_table_attach(GTK_TABLE(tbl), hbox, 0, 2, 0, 1,
-	                 GTK_EXPAND | GTK_FILL, GTK_FILL, 0, 0);
+	gtk_grid_attach(GTK_GRID(grd), hbox, 0, 0, 2, 1);
 
-	init_hex_entry(&bpdlg, &bpdlg.start, "S_tart:", GTK_TABLE(tbl), 1);
-	init_hex_entry(&bpdlg, &bpdlg.end, "_End:", GTK_TABLE(tbl), 2);
+	init_hex_entry(&bpdlg, &bpdlg.start, _("S_tart:"), GTK_GRID(grd), 1);
+	init_hex_entry(&bpdlg, &bpdlg.end, _("_End:"), GTK_GRID(grd), 2);
 
-	frame = new_frame("Address", tbl);
+	frame = new_frame(_("Address"), grd);
 	bpdlg.address_label = gtk_frame_get_label_widget(GTK_FRAME(frame));
 	gtk_box_pack_start(GTK_BOX(bpdlg.box), frame, FALSE, FALSE, 0);
 	gtk_widget_show_all(bpdlg.box);
@@ -555,7 +529,10 @@ static gboolean edit_breakpoint(TilemDebugger *dbg,
 
 	addr_type_changed(NULL, &bpdlg);
 
-	gtk_widget_grab_focus(bpdlg.start.addr_entry);
+	if (edit_existing && edit_endaddr && bp->end != bp->start)
+		gtk_widget_grab_focus(bpdlg.end.addr_entry);
+	else
+		gtk_widget_grab_focus(bpdlg.start.addr_entry);
 
 	do {
 		if (gtk_dialog_run(GTK_DIALOG(dlg)) != GTK_RESPONSE_OK) {
@@ -597,12 +574,13 @@ static void format_address(TilemDebugger *dbg,
                            int type, dword value)
 {
 	const TilemCalc *calc;
-	unsigned int page;
-
-	g_return_if_fail(dbg->emu != NULL);
-	g_return_if_fail(dbg->emu->calc != NULL);
+	char *str;
 
 	calc = dbg->emu->calc;
+
+	g_return_if_fail(dbg->emu != NULL);
+	g_return_if_fail(calc != NULL);
+
 
 	switch (type) {
 	case TILEM_DB_BREAK_LOGICAL:
@@ -610,15 +588,9 @@ static void format_address(TilemDebugger *dbg,
 		break;
 
 	case TILEM_DB_BREAK_PHYSICAL:
-		if (value >= calc->hw.romsize) {
-			value -= calc->hw.romsize;
-			page = (value >> 14) + calc->hw.rampagemask;
-		}
-		else {
-			page = (value >> 14);
-		}
-
-		g_snprintf(buf, bufsize, "%02X:%04X", page, value & 0x3fff);
+		str = tilem_format_addr(dbg, value, TRUE);
+		g_strlcpy(buf, str, bufsize);
+		g_free(str);
 		break;
 
 	case TILEM_DB_BREAK_PORT:
@@ -650,6 +622,7 @@ static void set_iter_from_bp(struct bplist_dlg *bpldlg, GtkTreeIter *iter,
 
 	g_return_if_fail(bp != NULL);
 
+	/* FIXME: i18n */
 	tbuf[0] = type_info[bp->type].abbrev;
 	j = 1;
 	for (i = 0; i < 3; i++)
@@ -711,7 +684,7 @@ static void add_clicked(G_GNUC_UNUSED GtkButton *btn, gpointer data)
 	tmpbp.mode = dbg->last_bp_mode;
 
 	if (!edit_breakpoint(dbg, GTK_WINDOW(bpldlg->dlg),
-	                     "Add Breakpoint", &tmpbp, FALSE))
+	                     _("Add Breakpoint"), &tmpbp, FALSE, FALSE))
 		return;
 
 	dbg->last_bp_type = tmpbp.type;
@@ -746,7 +719,8 @@ static void remove_clicked(G_GNUC_UNUSED GtkButton *btn, gpointer data)
 }
 
 /* Edit an existing breakpoint */
-static void edit_row(struct bplist_dlg *bpldlg, GtkTreeIter *iter)
+static void edit_row(struct bplist_dlg *bpldlg, GtkTreeIter *iter,
+                     gboolean edit_endaddr)
 {
 	TilemDebugBreakpoint *bp, tmpbp;
 
@@ -755,7 +729,8 @@ static void edit_row(struct bplist_dlg *bpldlg, GtkTreeIter *iter)
 	tmpbp = *bp;
 
 	if (!edit_breakpoint(bpldlg->dbg, GTK_WINDOW(bpldlg->dlg),
-	                     "Edit Breakpoint", &tmpbp, TRUE))
+	                     _("Edit Breakpoint"), &tmpbp,
+	                     TRUE, edit_endaddr))
 		return;
 
 	tmpbp.disabled = 0;
@@ -777,7 +752,7 @@ static void edit_clicked(G_GNUC_UNUSED GtkButton *btn, gpointer data)
 	if (!gtk_tree_selection_get_selected(sel, NULL, &iter))
 		return;
 
-	edit_row(bpldlg, &iter);
+	edit_row(bpldlg, &iter, FALSE);
 }
 
 /* "Clear breakpoints" button clicked */
@@ -790,19 +765,15 @@ static void clear_clicked(G_GNUC_UNUSED GtkButton *btn, gpointer data)
 	dlg = gtk_message_dialog_new(GTK_WINDOW(bpldlg->dlg),
 	                             GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION,
 	                             GTK_BUTTONS_NONE,
-	                             "Clear all breakpoints?");
+	                             _("Clear all breakpoints?"));
 	gtk_message_dialog_format_secondary_markup
 		(GTK_MESSAGE_DIALOG(dlg),
-		 "All existing breakpoints will be deleted and"
-		 " cannot be restored.");
+		 _("All existing breakpoints will be deleted and"
+		   " cannot be restored."));
 	gtk_dialog_add_buttons(GTK_DIALOG(dlg),
-	                       GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-	                       GTK_STOCK_CLEAR, GTK_RESPONSE_ACCEPT,
+	                       _("Cancel"), GTK_RESPONSE_CANCEL,
+	                       _("Clear"), GTK_RESPONSE_ACCEPT,
 	                       NULL);
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(dlg),
-	                                        GTK_RESPONSE_ACCEPT,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
 
 	if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
 		while (bpldlg->dbg->breakpoints) {
@@ -819,15 +790,16 @@ static void clear_clicked(G_GNUC_UNUSED GtkButton *btn, gpointer data)
 /* Row activated (double-clicked, usually) */
 static void row_activated(G_GNUC_UNUSED GtkTreeView *treeview,
                           GtkTreePath *path,
-                          G_GNUC_UNUSED GtkTreeViewColumn *col,
+                          GtkTreeViewColumn *col,
                           gpointer data)
 {
 	struct bplist_dlg *bpldlg = data;
 	GtkTreeIter iter;
+	int cnum = gtk_tree_view_column_get_sort_column_id(col);
 
 	if (gtk_tree_model_get_iter(GTK_TREE_MODEL(bpldlg->store),
 	                            &iter, path))
-		edit_row(bpldlg, &iter);
+		edit_row(bpldlg, &iter, (cnum == COL_END));
 }
 
 /* Toggle button clicked for a breakpoint */
@@ -883,10 +855,10 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 
 	bpldlg.dbg = dbg;
 
-	dlg = gtk_dialog_new_with_buttons("Breakpoints",
+	dlg = gtk_dialog_new_with_buttons(_("Breakpoints"),
 	                                  GTK_WINDOW(dbg->window),
 	                                  GTK_DIALOG_MODAL,
-	                                  GTK_STOCK_CLOSE,
+	                                  _("Close"),
 	                                  GTK_RESPONSE_ACCEPT,
 	                                  NULL);
 
@@ -904,10 +876,10 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 	bpldlg.dlg = dlg;
 	bpldlg.store = store;
 
-	vbox = gtk_vbox_new(FALSE, 6);
+	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_container_set_border_width(GTK_CONTAINER(vbox), 6);
 
-	hbox = gtk_hbox_new(FALSE, 6);
+	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
 	for (l = dbg->breakpoints; l; l = l->next) {
 		gtk_list_store_append(store, &iter);
@@ -922,8 +894,8 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 
 	fixed_tree_view_init(treeview, 0,
 	                     COL_TYPE_STR, "MRWX ",
-	                     COL_START_STR, "DD:DDDD ",
-	                     COL_END_STR, "DD:DDDD ",
+	                     COL_START_STR, "RAMD:DDDD ",
+	                     COL_END_STR, "RAMD:DDDD ",
 	                     COL_ENABLED, TRUE,
 	                     -1);
 
@@ -933,7 +905,7 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 	/* Enabled/type column */
 
 	col = gtk_tree_view_column_new();
-	gtk_tree_view_column_set_title(col, "Type");
+	gtk_tree_view_column_set_title(col, _("Type"));
 	gtk_tree_view_column_set_sort_column_id(col, COL_TYPE_STR);
 	gtk_tree_view_column_set_sizing(col, GTK_TREE_VIEW_COLUMN_FIXED);
 
@@ -957,7 +929,7 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 
 	cell = gtk_cell_renderer_text_new();
 	col = gtk_tree_view_column_new_with_attributes
-		("Start", cell, "text", COL_START_STR, NULL);
+		(_("Start"), cell, "text", COL_START_STR, NULL);
 	gtk_tree_view_column_set_sort_column_id(col, COL_START);
 	gtk_tree_view_column_set_sizing(col, GTK_TREE_VIEW_COLUMN_FIXED);
 
@@ -967,7 +939,7 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 
 	cell = gtk_cell_renderer_text_new();
 	col = gtk_tree_view_column_new_with_attributes
-		("End", cell, "text", COL_END_STR, NULL);
+		(_("End"), cell, "text", COL_END_STR, NULL);
 	gtk_tree_view_column_set_sort_column_id(col, COL_END);
 	gtk_tree_view_column_set_sizing(col, GTK_TREE_VIEW_COLUMN_FIXED);
 
@@ -985,28 +957,28 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 
 	/* Buttons */
 
-	bbox = gtk_vbutton_box_new();
+	bbox = gtk_button_box_new(GTK_ORIENTATION_VERTICAL);
 	gtk_button_box_set_layout(GTK_BUTTON_BOX(bbox), GTK_BUTTONBOX_START);
 	gtk_box_set_spacing(GTK_BOX(bbox), 6);
 
-	btn = gtk_button_new_from_stock(GTK_STOCK_ADD);
+	btn = gtk_button_new_with_label(_("Add"));
 	g_signal_connect(btn, "clicked",
 	                 G_CALLBACK(add_clicked), &bpldlg);
 	gtk_container_add(GTK_CONTAINER(bbox), btn);
 
-	btn = gtk_button_new_from_stock(GTK_STOCK_REMOVE);
+	btn = gtk_button_new_with_label(_("Remove"));
 	g_signal_connect(btn, "clicked",
 	                 G_CALLBACK(remove_clicked), &bpldlg);
 	gtk_container_add(GTK_CONTAINER(bbox), btn);
 	bpldlg.remove_btn = btn;
 
-	btn = gtk_button_new_from_stock(GTK_STOCK_EDIT);
+	btn = gtk_button_new_with_label(_("Edit"));
 	g_signal_connect(btn, "clicked",
 	                 G_CALLBACK(edit_clicked), &bpldlg);
 	gtk_container_add(GTK_CONTAINER(bbox), btn);
 	bpldlg.edit_btn = btn;
 
-	btn = gtk_button_new_from_stock(GTK_STOCK_CLEAR);
+	btn = gtk_button_new_with_label(_("Clear"));
 	g_signal_connect(btn, "clicked",
 	                 G_CALLBACK(clear_clicked), &bpldlg);
 	gtk_container_add(GTK_CONTAINER(bbox), btn);
@@ -1022,9 +994,9 @@ void tilem_debugger_edit_breakpoints(TilemDebugger *dbg)
 	gtk_box_pack_start(GTK_BOX(vbox), hbox, TRUE, TRUE, 0);
 
 	invalid_cb = gtk_check_button_new_with_mnemonic
-		("Break on _invalid instructions");
+		(_("Break on _invalid instructions"));
 	undoc_cb = gtk_check_button_new_with_mnemonic
-		("Break on _undocumented instructions");
+		(_("Break on _undocumented instructions"));
 
 	tilem_calc_emulator_lock(dbg->emu);
 	flags = dbg->emu->calc->z80.emuflags;

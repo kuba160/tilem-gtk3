@@ -1,7 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2010-2011 Thibault Duponchelle
+ * Copyright (c) 2010-2017 Thibault Duponchelle
+ * Copyright (c) 2012 Benjamin Moody
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -86,7 +87,7 @@ void tilem_macro_add_action(TilemMacro* macro, int type, char * value) {
 	macro->actions = tilem_macro_actions_new(macro, n + 1);
 
 	/* Then we need to save the action */	
-	macro->actions[n] =  g_new(char, strlen(value)); /* FIXME : gcc says : "assignment from incompatible pointer type" ??? */
+	macro->actions[n] =  (TilemMacroAtom*) g_new(char, strlen(value)); 
 	macro->actions[n]->value = g_strdup(value);
 	macro->actions[n]->type = type;
 	macro->n++;
@@ -116,12 +117,12 @@ void tilem_macro_write_file(TilemCalcEmulator *emu) {
                  "directory/f", &dir,
                  NULL);
 
-	filename = prompt_save_file("Save macro", 
+	filename = prompt_save_file(_("Save macro"), 
 				    GTK_WINDOW(emu->ewin->window),
 				    NULL, 
 				    dir,
-				    "Macro files", "*.txt",
-                                    "All files", "*",
+	                            _("Macro files"), "*.txt",
+	                            _("All files"), "*",
 				    NULL);
 	if(filename) {
 		FILE * fp = g_fopen(filename, "w");
@@ -134,7 +135,7 @@ void tilem_macro_write_file(TilemCalcEmulator *emu) {
 					char * lengthchar = g_new0(char, 4);
 					int length = strlen(emu->macro->actions[i]->value);
 					fwrite("file=", 1, 5, fp);
-					sprintf(lengthchar, "%04d", strlen(emu->macro->actions[i]->value));
+					sprintf(lengthchar, "%04zd", strlen(emu->macro->actions[i]->value));
 					fwrite(lengthchar, 1, sizeof(int), fp);
 					fwrite("-", 1, 1, fp);
 					fwrite(emu->macro->actions[i]->value, 1, length, fp);
@@ -159,7 +160,7 @@ void tilem_macro_write_file(TilemCalcEmulator *emu) {
 static gboolean tilem_macro_play_main(TilemCalcEmulator *emu, G_GNUC_UNUSED gpointer data) {
 
 	if(!emu->macro) {	
-		printf("Nothing to play\n");
+		printf(_("Nothing to play\n"));
 		return FALSE;
 	}
 
@@ -215,15 +216,24 @@ static gboolean tilem_macro_load_main(TilemCalcEmulator* emu, gpointer data) {
 		tilem_macro_start(emu);	
 		while(c != EOF) {	
 			char* codechar = g_new0(char, 4);
-			fread(codechar, 1, 4, fp);
+			if(!fread(codechar, 1, 4, fp))
+				break;
 			if(strcmp(codechar, "file") == 0) {
 				c = fgetc(fp); /* Drop the "="*/
 				char *lengthchar = g_new0(char, 4);
-				fread(lengthchar, 1, 4, fp);
+				if(!fread(lengthchar, 1, 4, fp)) {
+					g_free(lengthchar);
+					break;
+				}
+					
 				c = fgetc(fp); /* Drop the "-"*/
 				int length = atoi(lengthchar);
 				char* filetoload= g_new0(char, length);
-				fread(filetoload, 1, length, fp);
+				if(!fread(filetoload, 1, length, fp)) {
+					g_free(lengthchar);
+					g_free(filetoload);
+					break;
+				}
 				tilem_macro_add_action(emu->macro, 1, filetoload);	
 				g_free(lengthchar);
 				g_free(filetoload);
@@ -260,11 +270,11 @@ void tilem_macro_load(TilemCalcEmulator *emu, char* filename) {
 		char *dir;
 		tilem_config_get("macro", "directory/f", &dir, NULL);
 
-		filename = prompt_open_file("Open macro", 
+		filename = prompt_open_file(_("Open macro"), 
 					    GTK_WINDOW(emu->ewin->window),
 					    dir,
-					    "Macro files", "*.txt",
-	                                    "All files", "*",
+		                            _("Macro files"), "*.txt",
+		                            _("All files"), "*",
 					    NULL);
 		if(dir)
 			g_free(dir);

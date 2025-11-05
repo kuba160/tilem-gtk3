@@ -1,7 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2011 Benjamin Moody
+ * Copyright (c) 2011-2012 Benjamin Moody
+ * Copyright (c) 2017 Thibault Duponchelle
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -128,6 +129,7 @@ static void grayscale_changed(GtkToggleButton *btn, gpointer data)
 	TilemEmulatorWindow *ewin = data;
 	gboolean setting = gtk_toggle_button_get_active(btn);
 	tilem_calc_emulator_set_grayscale(ewin->emu, setting);
+	tilem_emulator_window_refresh_lcd(ewin);
 	tilem_config_set("emulation",
 	                 "grayscale/b", setting,
 	                 NULL);
@@ -138,6 +140,7 @@ static void smooth_changed(GtkToggleButton *btn, gpointer data)
 	TilemEmulatorWindow *ewin = data;
 	gboolean setting = gtk_toggle_button_get_active(btn);
 	ewin->lcd_smooth_scale = setting;
+	tilem_emulator_window_refresh_lcd(ewin);
 	tilem_config_set("settings",
 	                 "smooth_scaling/b", setting,
 	                 NULL);
@@ -181,25 +184,25 @@ void tilem_preferences_dialog(TilemEmulatorWindow *ewin)
 	g_return_if_fail(ewin != NULL);
 	g_return_if_fail(ewin->emu != NULL);
 
-	dlg = gtk_dialog_new_with_buttons("Preferences",
+	dlg = gtk_dialog_new_with_buttons(_("Preferences"),
 	                                  GTK_WINDOW(ewin->window),
 	                                  GTK_DIALOG_MODAL,
-	                                  GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE,
+	                                  _("Close"), GTK_RESPONSE_CLOSE,
 	                                  NULL);
 
-	vbox1 = gtk_vbox_new(FALSE, 12);
+	vbox1 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
 	gtk_container_set_border_width(GTK_CONTAINER(vbox1), 6);
 
 	/* Emulation speed */
 
-	vbox2 = gtk_vbox_new(FALSE, 6);
+	vbox2 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 
 	slow_rb = gtk_radio_button_new_with_mnemonic
-		(NULL, "_Limit to actual calculator speed");
+		(NULL, _("_Limit to actual calculator speed"));
 	gtk_box_pack_start(GTK_BOX(vbox2), slow_rb, FALSE, FALSE, 0);
 
 	fast_rb = gtk_radio_button_new_with_mnemonic_from_widget
-		(GTK_RADIO_BUTTON(slow_rb), "As _fast as possible");
+		(GTK_RADIO_BUTTON(slow_rb), _("As _fast as possible"));
 	gtk_box_pack_start(GTK_BOX(vbox2), fast_rb, FALSE, FALSE, 0);
 
 	if (!ewin->emu->limit_speed)
@@ -208,15 +211,18 @@ void tilem_preferences_dialog(TilemEmulatorWindow *ewin)
 	g_signal_connect(slow_rb, "toggled",
 	                 G_CALLBACK(speed_changed), ewin);
 
-	frame = new_frame("Emulation Speed", vbox2);
+	frame = new_frame(_("Emulation Speed"), vbox2);
 	gtk_box_pack_start(GTK_BOX(vbox1), frame, FALSE, FALSE, 0);
 
 	/* Display settings */
 
-	vbox2 = gtk_vbox_new(FALSE, 6);
+	vbox2 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 
-	grayscale_cb = gtk_check_button_new_with_mnemonic("Emulate _grayscale");
+	grayscale_cb = gtk_check_button_new_with_mnemonic(_("Emulate _grayscale"));
 	gtk_box_pack_start(GTK_BOX(vbox2), grayscale_cb, FALSE, FALSE, 0);
+
+	if (ewin->emu->calc->hw.flags & TILEM_CALC_HAS_COLOR)
+		gtk_widget_set_sensitive(grayscale_cb, FALSE);
 
 	if (ewin->emu->grayscale)
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(grayscale_cb), TRUE);
@@ -224,7 +230,7 @@ void tilem_preferences_dialog(TilemEmulatorWindow *ewin)
 	g_signal_connect(grayscale_cb, "toggled",
 	                 G_CALLBACK(grayscale_changed), ewin);
 
-	smooth_cb = gtk_check_button_new_with_mnemonic("Use _smooth scaling");
+	smooth_cb = gtk_check_button_new_with_mnemonic(_("Use _smooth scaling"));
 	gtk_box_pack_start(GTK_BOX(vbox2), smooth_cb, FALSE, FALSE, 0);
 
 	if (ewin->lcd_smooth_scale)
@@ -233,14 +239,14 @@ void tilem_preferences_dialog(TilemEmulatorWindow *ewin)
 	g_signal_connect(smooth_cb, "toggled",
 	                 G_CALLBACK(smooth_changed), ewin);
 
-	hbox = gtk_hbox_new(FALSE, 6);
+	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
-	skin_cb = gtk_check_button_new_with_mnemonic("Use s_kin:");
+	skin_cb = gtk_check_button_new_with_mnemonic(_("Use s_kin:"));
 	gtk_box_pack_start(GTK_BOX(hbox), skin_cb, FALSE, FALSE, 0);
 
-	skin_entry = file_entry_new("Select Skin",
-	                            "Skin files", "*.skn",
-	                            "All files", "*",
+	skin_entry = file_entry_new(_("Select Skin"),
+	                            _("Skin files"), "*.skn",
+	                            _("All files"), "*",
 	                            NULL);
 	gtk_box_pack_start(GTK_BOX(hbox), skin_entry, TRUE, TRUE, 0);
 
@@ -258,7 +264,7 @@ void tilem_preferences_dialog(TilemEmulatorWindow *ewin)
 	g_signal_connect(skin_entry, "selection-changed",
 	                 G_CALLBACK(skin_file_changed), ewin);
 
-	frame = new_frame("Display", vbox2);
+	frame = new_frame(_("Display"), vbox2);
 	gtk_box_pack_start(GTK_BOX(vbox1), frame, FALSE, FALSE, 0);
 
 	vbox2 = gtk_dialog_get_content_area(GTK_DIALOG(dlg));

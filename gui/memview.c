@@ -43,7 +43,7 @@ static int get_column_index(GtkWidget *view, GtkTreeViewColumn *col)
 	cols = gtk_tree_view_get_columns(GTK_TREE_VIEW(view));
 	i = g_list_index(cols, col);
 	g_list_free(cols);
-	return -1;
+	return i;
 }
 
 /* Determine current position in the memory view. */
@@ -182,7 +182,6 @@ GtkWidget *tilem_debugger_mem_view_new(TilemDebugger *dbg)
 	treeview = gtk_tree_view_new();
 	gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(treeview), FALSE);
 	gtk_tree_view_set_fixed_height_mode(GTK_TREE_VIEW(treeview), TRUE);
-	gtk_tree_view_set_rules_hint(GTK_TREE_VIEW(treeview), TRUE);
 
 	g_object_set_data(G_OBJECT(treeview), "tilem-debugger", dbg);
 
@@ -281,7 +280,7 @@ void tilem_debugger_mem_view_configure(GtkWidget *mem_view,
 		create_columns(mem_view, rowsize);
 
 	fixed_tree_view_init(mem_view, MM_COLUMNS_PER_BYTE,
-	                     MM_COL_ADDRESS_0, "DD:DDDD ",
+	                     MM_COL_ADDRESS_0, "RAMD:DDDD ",
 	                     MM_COL_HEX_0, "DD ",
 	                     MM_COL_CHAR_0, "M ",
 	                     MM_COL_EDITABLE_0, TRUE,

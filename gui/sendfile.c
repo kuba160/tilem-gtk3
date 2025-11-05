@@ -1,8 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2010-2011 Thibault Duponchelle
- * Copyright (c) 2010-2011 Benjamin Moody
+ * Copyright (c) 2010-2017 Thibault Duponchelle
+ * Copyright (c) 2010-2014 Benjamin Moody
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -158,12 +158,12 @@ static void prompt_program_slots(TilemCalcEmulator *emu,
 			used[slot] = 0;
 		}
 		else if (namestr && namestr[0]) {
-			slotlabel[slot] = g_strdup_printf("%s (in use: %s)",
+			slotlabel[slot] = g_strdup_printf(_("%s (in use: %s)"),
 			                                  slotstr, namestr);
 			used[slot] = 1;
 		}
 		else {
-			slotlabel[slot] = g_strdup_printf("%s (in use)", slotstr);
+			slotlabel[slot] = g_strdup_printf(_("%s (in use)"), slotstr);
 			used[slot] = 1;
 		}
 
@@ -226,7 +226,7 @@ static void prompt_program_slots(TilemCalcEmulator *emu,
 
 	cell = gtk_cell_renderer_text_new();
 	col = gtk_tree_view_column_new_with_attributes
-		("File", cell, "text", 0, NULL);
+		(_("File"), cell, "text", 0, NULL);
 	gtk_tree_view_column_set_expand(col, TRUE);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(tv), col);
 
@@ -234,22 +234,18 @@ static void prompt_program_slots(TilemCalcEmulator *emu,
 	g_object_set(cell, "model", slotstore, "text-column", 0,
 	             "editable", TRUE, "has-entry", FALSE, NULL);
 	col = gtk_tree_view_column_new_with_attributes
-		("Slot", cell, "text", 1, NULL);
+		(_("Slot"), cell, "text", 1, NULL);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(tv), col);
 
 	g_signal_connect(cell, "edited", G_CALLBACK(slot_edited), slotdlg);
 
 	/* Create dialog */
 
-	dlg = gtk_dialog_new_with_buttons("Select Program Slots",
+	dlg = gtk_dialog_new_with_buttons(_("Select Program Slots"),
 	                                  GTK_WINDOW(parent), GTK_DIALOG_MODAL,
-	                                  GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-	                                  GTK_STOCK_OK, GTK_RESPONSE_OK,
+	                                  _("Cancel"), GTK_RESPONSE_CANCEL,
+	                                  _("OK"), GTK_RESPONSE_OK,
 	                                  NULL);
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(dlg),
-	                                        GTK_RESPONSE_OK,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
 	gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_OK);
 
 	gtk_window_set_default_size(GTK_WINDOW(dlg), -1, 250);
@@ -262,13 +258,13 @@ static void prompt_program_slots(TilemCalcEmulator *emu,
 	                                    GTK_SHADOW_IN);
 	gtk_container_add(GTK_CONTAINER(sw), tv);
 
-	vbox = gtk_vbox_new(FALSE, 6);
+	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_container_set_border_width(GTK_CONTAINER(vbox), 6);
 
-	lbl = gtk_label_new("Select a slot where each program should be"
-	                    " loaded.  If a program slot is already in use,"
-	                    " its contents will be overwritten.");
-	gtk_misc_set_alignment(GTK_MISC(lbl), 0.0, 0.0);
+	lbl = gtk_label_new(_("Select a slot where each program should be"
+	                      " loaded.  If a program slot is already in use,"
+	                      " its contents will be overwritten."));
+	gtk_widget_set_halign(lbl, GTK_ALIGN_FILL);
 	gtk_label_set_line_wrap(GTK_LABEL(lbl), TRUE);
 	gtk_label_set_width_chars(GTK_LABEL(lbl), 45);
 	gtk_box_pack_start(GTK_BOX(vbox), lbl, FALSE, FALSE, 0);
@@ -314,48 +310,62 @@ static void check_prog_slots_finished(TilemCalcEmulator *emu, gpointer data,
 
 #define PAT_TI81       "*.prg"
 #define PAT_TI73       "*.73?"
-#define PAT_TI73_NUM   "*.73n;*.73l;*.73m;*.73i"
+#define PAT_TI73_NUM   "*.73n;*.73l;*.73m"
 #define PAT_TI82       "*.82?"
-#define PAT_TI82_NUM   "*.82n;*.82l;*.82m;*.82i"
+#define PAT_TI82_NUM   "*.82n;*.82l;*.82m"
 #define PAT_TI82_TEXT  "*.82s;*.82y;*.82p"
 #define PAT_TI83       "*.83?"
-#define PAT_TI83_NUM   "*.83n;*.83l;*.83m;*.83i"
+#define PAT_TI83_NUM   "*.83n;*.83l;*.83m"
 #define PAT_TI83_TEXT  "*.83s;*.83y;*.83p"
 #define PAT_TI83P      "*.8x?;*.8xgrp"
-#define PAT_TI83P_NUM  "*.8xn;*.8xl;*.8xm;*.8xi"
+#define PAT_TI83P_NUM  "*.8xn;*.8xl;*.8xm"
 #define PAT_TI83P_TEXT "*.8xs;*.8xy;*.8xp"
+#define PAT_TI84PC     "*.8c?"
+#define PAT_TI83P_84PC "*.8c?;*.8xc;*.8xd;*.8xe;*.8xg;*.8xgrp;*.8xl;*.8xm;" \
+                       "*.8xn;*.8xo;*.8xp;*.8xs;*.8xt;*.8xv;*.8xw;*.8xy;*.8xz"
 #define PAT_TI85       "*.85?"
 #define PAT_TI86       "*.86?"
 #define PAT_TIG        "*.tig"
+#define PAT_PIC_96x63  "*.73i;*.82i;*.83i;*.8xi"
 
-#define FLT_TI81       "TI-81 programs", PAT_TI81
-#define FLT_TI73       "TI-73 files", PAT_TI73
-#define FLT_TI82       "TI-82 files", PAT_TI82
-#define FLT_TI83       "TI-83 files", PAT_TI83
-#define FLT_TI83P      "TI-83 Plus files", PAT_TI83P
-#define FLT_TI85       "TI-85 files", PAT_TI85
-#define FLT_TI86       "TI-86 files", PAT_TI86
-#define FLT_TIG        "TIGroup files", PAT_TIG
-#define FLT_ALL        "All files", "*"
+#define FLT_TI81       _("TI-81 programs"), PAT_TI81
+#define FLT_TI73       _("TI-73 files"), PAT_TI73
+#define FLT_TI82       _("TI-82 files"), PAT_TI82
+#define FLT_TI83       _("TI-83 files"), PAT_TI83
+#define FLT_TI83P      _("TI-83 Plus files"), PAT_TI83P
+#define FLT_TI84PC     _("TI-84 Plus CSE files"), PAT_TI84PC
+#define FLT_TI85       _("TI-85 files"), PAT_TI85
+#define FLT_TI86       _("TI-86 files"), PAT_TI86
+#define FLT_TIG        _("TIGroup files"), PAT_TIG
+#define FLT_ALL        _("All files"), "*"
 
-#define DESC_COMPAT "All compatible files"
+#define DESC_COMPAT _("All compatible files")
 
 #define FLT_TI73_COMPAT    DESC_COMPAT, (PAT_TI73 ";" PAT_TIG ";" \
                                          PAT_TI82_NUM ";" \
                                          PAT_TI83_NUM ";" \
-                                         PAT_TI83P_NUM)
+                                         PAT_TI83P_NUM ";" \
+                                         PAT_PIC_96x63)
 
 #define FLT_TI82_COMPAT    DESC_COMPAT, (PAT_TI82 ";" PAT_TIG ";" \
                                          PAT_TI83_TEXT ";" PAT_TI83_NUM ";" \
                                          PAT_TI83P_TEXT ";" PAT_TI83P_NUM ";" \
-                                         PAT_TI73_NUM)
+                                         PAT_TI73_NUM ";" \
+                                         PAT_PIC_96x63)
 
 #define FLT_TI83_COMPAT    DESC_COMPAT, (PAT_TI83 ";" PAT_TIG ";" \
                                          PAT_TI82_TEXT ";" PAT_TI82_NUM ";" \
                                          PAT_TI83P_TEXT ";" PAT_TI83P_NUM ";" \
-                                         PAT_TI73_NUM)
+                                         PAT_TI73_NUM ";" \
+                                         PAT_PIC_96x63)
 
 #define FLT_TI83P_COMPAT   DESC_COMPAT, (PAT_TI83P ";" PAT_TIG ";" \
+                                         PAT_TI82_TEXT ";" PAT_TI82_NUM ";" \
+                                         PAT_TI83_TEXT ";" PAT_TI83_NUM ";" \
+                                         PAT_TI73_NUM ";" \
+                                         PAT_PIC_96x63)
+
+#define FLT_TI84PC_COMPAT  DESC_COMPAT, (PAT_TI83P_84PC ";" PAT_TIG ";" \
                                          PAT_TI82_TEXT ";" PAT_TI82_NUM ";" \
                                          PAT_TI83_TEXT ";" PAT_TI83_NUM ";" \
                                          PAT_TI73_NUM)
@@ -396,6 +406,11 @@ static char ** prompt_link_files(const char *title,
 		                         FLT_TI83P_COMPAT, FLT_TI73,
 		                         FLT_TI82, FLT_TI83, FLT_TI83P,
 		                         FLT_TIG, FLT_ALL, NULL);
+	case TILEM_CALC_TI84PC_SE:
+		return prompt_open_files(title, parent, dir,
+		                         FLT_TI84PC_COMPAT, FLT_TI73,
+		                         FLT_TI82, FLT_TI83, FLT_TI83P,
+		                         FLT_TI84PC, FLT_TIG, FLT_ALL, NULL);
 	case TILEM_CALC_TI85:
 	case TILEM_CALC_TI86:
 		return prompt_open_files(title, parent, dir,
@@ -505,7 +520,7 @@ void load_file_dialog(TilemEmulatorWindow *ewin)
 	                 "sendfile_recentdir/f", &dir,
 	                 NULL);
 
-	filenames = prompt_link_files("Send File",
+	filenames = prompt_link_files(_("Send File"),
 	                              GTK_WINDOW(ewin->window),
 	                              dir, ewin->emu->calc->hw.model_id);
 	g_free(dir);

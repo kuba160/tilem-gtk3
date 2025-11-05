@@ -1,8 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2011 Benjamin Moody
- * Copyright (c) 2011 Thibault Duponchelle // FIXME : My work is based on yours benjamin. Should I put "portions"?! Or something else ?
+ * Copyright (c) 2011-2012 Benjamin Moody
+ * Copyright (c) 2011-2017 Thibault Duponchelle
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -29,6 +29,7 @@
 
 #include "gtk-compat.h"
 #include "filedlg.h"
+#include "gettext.h"
 
 #ifdef GDK_WINDOWING_WIN32
 # define WIN32_LEAN_AND_MEAN
@@ -455,7 +456,7 @@ static char* run_dir_chooser(G_GNUC_UNUSED const char *title,
 	if (!g_thread_supported())
 		g_thread_init(NULL);
 
-	dci.title = "Select a folder to save received files.";
+	dci.title = _("Select a folder to save received files.");
 
 	if (parent && (pwin = gtk_widget_get_window(GTK_WIDGET(parent))))
 		dci.parent_window = GDK_WINDOW_HWND(pwin);
@@ -588,8 +589,8 @@ static gboolean prompt_overwrite(const char *fname,
 	                             GTK_DIALOG_MODAL,
 	                             GTK_MESSAGE_QUESTION,
 	                             GTK_BUTTONS_NONE,
-	                             "A file named \"%s\" already exists.  "
-	                             "Do you want to replace it?",
+	                             _("A file named \"%s\" already exists.  "
+	                               "Do you want to replace it?"),
 	                             p);
 	g_free(p);
 
@@ -597,28 +598,23 @@ static gboolean prompt_overwrite(const char *fname,
 	q = g_filename_display_basename(p);
 	gtk_message_dialog_format_secondary_markup
 		(GTK_MESSAGE_DIALOG(dlg),
-		 "The file already exists in \"%s\".  Replacing it will "
-		 "overwrite its contents.", q);
+		 _("The file already exists in \"%s\".  Replacing it will "
+		   "overwrite its contents."), q);
 	g_free(p);
 	g_free(q);
 
 	gtk_dialog_add_button(GTK_DIALOG(dlg),
-	                      GTK_STOCK_CANCEL,
+	                      _("Cancel"),
 	                      GTK_RESPONSE_CANCEL);
 
-	button = gtk_button_new_with_mnemonic("_Replace");
+	button = gtk_button_new_with_mnemonic(_("_Replace"));
 	gtk_widget_set_can_default(button, TRUE);
 	gtk_button_set_image(GTK_BUTTON(button),
-	                     gtk_image_new_from_stock(GTK_STOCK_SAVE,
+	                     gtk_image_new_from_icon_name("document-save",
 	                                              GTK_ICON_SIZE_BUTTON));
 	gtk_widget_show(button);
 	gtk_dialog_add_action_widget(GTK_DIALOG(dlg), button,
 	                             GTK_RESPONSE_ACCEPT);
-
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(dlg),
-	                                        GTK_RESPONSE_ACCEPT,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
 
 	if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
 		gtk_widget_destroy(dlg);
@@ -649,18 +645,13 @@ static char ** run_file_chooser(const char *title,
 	                                      (save
 	                                       ? GTK_FILE_CHOOSER_ACTION_SAVE
 	                                       : GTK_FILE_CHOOSER_ACTION_OPEN),
-	                                      GTK_STOCK_CANCEL,
+	                                      _("Cancel"),
 	                                      GTK_RESPONSE_CANCEL,
 	                                      (save
-	                                       ? GTK_STOCK_SAVE
-	                                       : GTK_STOCK_OPEN),
+	                                       ?_("Save") 
+	                                       : _("Open")),
 	                                      GTK_RESPONSE_ACCEPT,
 	                                      NULL);
-
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(filesel),
-	                                        GTK_RESPONSE_ACCEPT,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
 
 	gtk_dialog_set_default_response(GTK_DIALOG(filesel),
 	                                GTK_RESPONSE_ACCEPT);
@@ -734,18 +725,13 @@ static char* run_dir_chooser(const char *title,
 
 	filesel = gtk_file_chooser_dialog_new(title, parent,
 					      GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
-	                                      GTK_STOCK_CANCEL,
+	                                      _("Cancel"),
 	                                      GTK_RESPONSE_CANCEL,
 	                                      (save
-	                                       ? GTK_STOCK_SAVE
-	                                       : GTK_STOCK_OPEN),
+	                                       ?_("Save") 
+	                                       : _("Open")),
 	                                      GTK_RESPONSE_ACCEPT,
 	                                      NULL);
-
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(filesel),
-	                                        GTK_RESPONSE_ACCEPT,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
 
 	gtk_dialog_set_default_response(GTK_DIALOG(filesel),
 	                                GTK_RESPONSE_ACCEPT);
@@ -960,7 +946,7 @@ static void file_entry_init(FileEntry *fe)
 	gtk_box_set_spacing(GTK_BOX(fe), 6);
 
 	fe->entry = gtk_entry_new();
-	fe->button = gtk_button_new_with_label("Browse...");
+	fe->button = gtk_button_new_with_label(_("Browse..."));
 	gtk_box_pack_start(GTK_BOX(fe), fe->entry, TRUE, TRUE, 0);
 	gtk_box_pack_start(GTK_BOX(fe), fe->button, FALSE, FALSE, 0);
 	gtk_widget_show(fe->entry);

@@ -2,6 +2,7 @@
  * TilEm II
  *
  * Copyright (c) 2011 Benjamin Moody
+ * Copyright (c) 2017 Thibault Duponchelle 
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -52,7 +53,11 @@ char * tilem_format_addr(TilemDebugger *dbg, dword addr, gboolean physical)
 	if (addr_l == 0xffffffff)
 		addr_l = (addr & 0x3fff) | 0x4000;
 
-	return g_strdup_printf("%02X:%04X", page, addr_l);
+	if (addr >= dbg->emu->calc->hw.romsize
+	    && !dbg->emu->calc->hw.rampagemask)
+		return g_strdup_printf("RAM%X:%04X", page, addr_l);
+	else
+		return g_strdup_printf("%02X:%04X", page, addr_l);
 }
 
 static gboolean parse_hex(const char *string, dword *value)
@@ -85,10 +90,21 @@ gboolean tilem_parse_paged_addr(TilemDebugger *dbg, const char *pagestr,
                                 const char *offsstr, dword *value)
 {
 	dword page, offs;
+	int isram = 0;
 
 	g_return_val_if_fail(dbg != NULL, FALSE);
 	g_return_val_if_fail(dbg->emu != NULL, FALSE);
 	g_return_val_if_fail(dbg->emu->calc != NULL, FALSE);
+
+	if (pagestr[0] == 'R' || pagestr[0] == 'r') {
+		isram = 1;
+		pagestr++;
+		if ((pagestr[0] == 'A' || pagestr[0] == 'a')
+		    && (pagestr[1] == 'M' || pagestr[1] == 'm'))
+			pagestr += 2;
+		if (pagestr[0] == ':')
+			pagestr++;
+	}
 
 	if (!parse_hex(pagestr, &page))
 		return FALSE;
@@ -96,11 +112,9 @@ gboolean tilem_parse_paged_addr(TilemDebugger *dbg, const char *pagestr,
 		return FALSE;
 
 	offs &= 0x3fff;
-	if (page & dbg->emu->calc->hw.rampagemask) {
-		page &= ~dbg->emu->calc->hw.rampagemask;
-		offs += (offs << 14);
-		if (offs > dbg->emu->calc->hw.ramsize)
-			return FALSE;
+	if (isram || page >= (dbg->emu->calc->hw.romsize >> 14)) {
+		page %= (dbg->emu->calc->hw.ramsize >> 14);
+		offs += (page << 14);
 		offs += dbg->emu->calc->hw.romsize;
 	}
 	else {
@@ -128,7 +142,7 @@ gboolean tilem_parse_addr(TilemDebugger *dbg, const char *string,
 		return TRUE;
 	}
 
-	if (physical && (offstr = strchr(string, ':'))) {
+	if (physical && (offstr = strrchr(string, ':'))) {
 		pagestr = g_strndup(string, offstr - string);
 		offstr++;
 		if (tilem_parse_paged_addr(dbg, pagestr, offstr, value)) {
@@ -181,17 +195,14 @@ gboolean tilem_prompt_address(TilemDebugger *dbg, GtkWindow *parent,
 	g_return_val_if_fail(dbg->emu->calc != NULL, FALSE);
 
 	dlg = gtk_dialog_new_with_buttons(title, parent, GTK_DIALOG_MODAL,
-	                                  GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-	                                  GTK_STOCK_OK, GTK_RESPONSE_OK,
+	                                  _("Cancel"), GTK_RESPONSE_CANCEL,
+	                                  _("OK"), GTK_RESPONSE_OK,
 	                                  NULL);
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(dlg),
-	                                        GTK_RESPONSE_OK,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
+
 	gtk_dialog_set_default_response(GTK_DIALOG(dlg),
 	                                GTK_RESPONSE_OK);
 
-	hbox = gtk_hbox_new(FALSE, 6);
+	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 	gtk_container_set_border_width(GTK_CONTAINER(hbox), 6);
 
 	lbl = gtk_label_new(prompt);

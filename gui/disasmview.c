@@ -2,6 +2,7 @@
  * TilEm II
  *
  * Copyright (c) 2011-2012 Benjamin Moody
+ * Copyright (c) 2017 Thibault Duponchelle
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -110,7 +111,7 @@ static void disassemble(TilemDisasmView *dv, TilemCalc *calc, dword pos,
 	if (!(pos & 1) && (lbl = get_label(dv, calc, addr))) {
 		if (mnemonic) {
 			*mnemonic = NULL;
-			*args = g_strdup_printf("%s:", lbl);
+			*args = g_strdup_printf(_("%s:"), lbl);
 		}
 
 		if (nextpos)
@@ -153,7 +154,7 @@ static dword get_next_pos(TilemDisasmView *dv, TilemCalc *calc, dword pos)
 /* Get "previous" position */
 static dword get_prev_pos(TilemDisasmView *dv, TilemCalc *calc, dword pos)
 {
-	dword addr = POS_TO_ADDR(pos);
+	dword addr = POS_TO_ADDR(pos), a2;
 
 	g_return_val_if_fail(calc != NULL, 0);
 
@@ -161,17 +162,13 @@ static dword get_prev_pos(TilemDisasmView *dv, TilemCalc *calc, dword pos)
 		return pos - 1;
 	}
 	else {
-		if (addr > 0)
-			addr--;
-		else if (dv->use_logical)
-			addr = 0xffff;
-		else
-			addr = (calc->hw.romsize + calc->hw.ramsize - 1);
+		a2 = tilem_disasm_guess_prev_address(dv->dbg->dasm, calc,
+		                                     !dv->use_logical, addr);
 
-		if (get_label(dv, calc, addr))
-			return ADDR_TO_POS(addr) + 1;
+		if (a2 != addr && get_label(dv, calc, a2))
+			return ADDR_TO_POS(a2) + 1;
 		else
-			return ADDR_TO_POS(addr);
+			return ADDR_TO_POS(a2);
 	}
 }
 
@@ -254,7 +251,7 @@ static void append_dummy_line(TilemDisasmView *dv, GtkTreeModel *model,
 
 	gtk_list_store_set(GTK_LIST_STORE(model), &iter1,
 	                   COL_ICON, icon,
-	                   COL_ADDRESS, "DD:DDDD",
+	                   COL_ADDRESS, "RAMD:DDDD",
 	                   COL_MNEMONIC, "ROM_CALL",
 	                   COL_ARGUMENTS, "_fnord",
 	                   COL_SHOW_MNEMONIC, TRUE,
@@ -367,9 +364,9 @@ static TilemDebugBreakpoint *find_line_bp(TilemDisasmView *dv, dword pos)
 /* Enable breakpoint on the given line */
 static void enable_line_bp(TilemDisasmView *dv, dword pos)
 {
-	TilemDebugBreakpoint *bp, tmpbp;
+	TilemDebugBreakpoint tmpbp;
 
-	if ((bp = find_line_bp(dv, pos)))
+	if (find_line_bp(dv, pos))
 		return;
 
 	tmpbp.type = (dv->use_logical
@@ -553,9 +550,9 @@ static gboolean get_cursor_line(TilemDisasmView *dv, dword *pos,
    we've inserted into the model) */
 static int get_parent_request_height(GtkWidget *w)
 {
-	GtkRequisition req;
-	(*GTK_WIDGET_CLASS(parent_class)->size_request)(w, &req);
-	return req.height;
+	GtkRequisition min_req, nat_req;
+	gtk_widget_get_preferred_size(w, &min_req, &nat_req);
+	return nat_req.height;
 }
 
 /* Widget is assigned a size and position */
@@ -613,8 +610,9 @@ static void tilem_disasm_view_size_allocate(GtkWidget *w,
 /* Get widget's desired size */
 static void tilem_disasm_view_size_request(GtkWidget *w, GtkRequisition *req)
 {
-	(*GTK_WIDGET_CLASS(parent_class)->size_request)(w, req);
-	req->height = 100;	/* ignore requested height */
+	//(*GTK_WIDGET_CLASS(parent_class)->size_request)(w, req);
+	gtk_widget_set_size_request(w, -1, 100);
+	//w->req->height = 100;	/* ignore requested height */
 }
 
 /* Widget style set */
@@ -719,6 +717,51 @@ static gboolean move_down_lines(TilemDisasmView *dv, int count)
 	return TRUE;
 }
 
+/* Move up by COUNT pages */
+static void move_up_pages(TilemDisasmView *dv, int count)
+{
+	TilemCalc *calc;
+	int i;
+	dword pos;
+
+	tilem_calc_emulator_lock(dv->dbg->emu);
+	calc = dv->dbg->emu->calc;
+
+	pos = dv->startpos;
+
+	while (count > 0) {
+		for (i = 0; i < dv->nlines; i++)
+			pos = get_prev_pos(dv, calc, pos);
+		count--;
+	}
+
+	tilem_calc_emulator_unlock(dv->dbg->emu);
+	refresh_disassembly(dv, pos, dv->nlines, pos - 1);
+}
+
+/* Move down by COUNT pages */
+static void move_down_pages(TilemDisasmView *dv, int count)
+{
+	TilemCalc *calc;
+	int i;
+	dword pos;
+
+	tilem_calc_emulator_lock(dv->dbg->emu);
+	calc = dv->dbg->emu->calc;
+
+	pos = dv->endpos;
+	count--;
+
+	while (count > 0) {
+		for (i = 0; i < dv->nlines; i++)
+			pos = get_next_pos(dv, calc, pos);
+		count--;
+	}
+
+	tilem_calc_emulator_unlock(dv->dbg->emu);
+	refresh_disassembly(dv, pos, dv->nlines, pos - 1);
+}
+
 /* Move down by COUNT bytes */
 static void move_bytes(TilemDisasmView *dv, int count)
 {
@@ -740,7 +783,7 @@ static void move_bytes(TilemDisasmView *dv, int count)
 	}
 
 	pos = ADDR_TO_POS(addr);
-	refresh_disassembly(dv, pos, dv->nlines, pos - 1);
+	refresh_disassembly(dv, pos, dv->nlines, pos);
 }
 
 /* Move the cursor (action signal) */
@@ -771,8 +814,10 @@ static gboolean tilem_disasm_view_move_cursor(GtkTreeView *tv,
 	case GTK_MOVEMENT_PARAGRAPHS:
 	case GTK_MOVEMENT_PARAGRAPH_ENDS:
 	case GTK_MOVEMENT_PAGES:
-		/* FIXME: might be better to move by actual "pages" of code */
-		move_bytes(dv, count * 0x100);
+		if (count < 0)
+			move_up_pages(dv, -count);
+		else
+			move_down_pages(dv, count);
 		return TRUE;
 
 	case GTK_MOVEMENT_BUFFER_ENDS:
@@ -789,6 +834,13 @@ static gboolean tilem_disasm_view_move_cursor(GtkTreeView *tv,
 	}
 
 	return (*GTK_TREE_VIEW_CLASS(parent_class)->move_cursor)(tv, step, count);
+}
+
+/* Scroll view by a fixed number of bytes. */
+void tilem_disasm_view_scroll_bytes(TilemDisasmView *dv, int n)
+{
+	g_return_if_fail(TILEM_IS_DISASM_VIEW(dv));
+	move_bytes(dv, n);
 }
 
 /* Popup menu */
@@ -827,7 +879,7 @@ static void prompt_go_to(G_GNUC_UNUSED GtkMenuItem *item, gpointer data)
 	addr = POS_TO_ADDR(curpos);
 
 	if (tilem_prompt_address(dv->dbg, GTK_WINDOW(window),
-	                         "Go to Address", "Address:",
+	                         _("Go to Address"), _("Address:"),
 	                         &addr, !dv->use_logical,
 	                         (curpos != (dword) -1)))
 		tilem_disasm_view_go_to_address(dv, addr, dv->use_logical);
@@ -872,7 +924,7 @@ static void place_menu(GtkMenu *menu, gint *x, gint *y,
 		*y += rect.y + rect.height;
 	}
 
-	screen = gdk_drawable_get_screen(win);
+	screen = gdk_window_get_screen(win);
 	n = gdk_screen_get_monitor_at_point(screen, *x, *y);
 	gtk_menu_set_monitor(menu, n);
 
@@ -891,7 +943,7 @@ static void show_popup_menu(TilemDisasmView *dv, GdkEventButton *event)
 
 	/* Enable/disable breakpoint */
 
-	item = gtk_check_menu_item_new_with_mnemonic("_Breakpoint Here");
+	item = gtk_check_menu_item_new_with_mnemonic(_("_Breakpoint Here"));
 
 	get_cursor_line(dv, &curpos, NULL);
 	if (curpos == (dword) -1)
@@ -911,12 +963,12 @@ static void show_popup_menu(TilemDisasmView *dv, GdkEventButton *event)
 
 	/* Jump to address */
 
-	item = gtk_menu_item_new_with_mnemonic("_Go to Address...");
+	item = gtk_menu_item_new_with_mnemonic(_("_Go to Address..."));
 	g_signal_connect(item, "activate", G_CALLBACK(prompt_go_to), dv);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 	gtk_widget_show(item);
 
-	item = gtk_menu_item_new_with_mnemonic("Go to P_C");
+	item = gtk_menu_item_new_with_mnemonic(_("Go to P_C"));
 	g_signal_connect(item, "activate", G_CALLBACK(go_to_pc), dv);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 	gtk_widget_show(item);
@@ -1008,14 +1060,14 @@ static void tilem_disasm_view_init(TilemDisasmView *dv)
 	dv->icon_column = col;
 
 	cell = gtk_cell_renderer_text_new();
-	col = gtk_tree_view_column_new_with_attributes("Addr", cell,
+	col = gtk_tree_view_column_new_with_attributes(_("Addr"), cell,
 	                                               "text", COL_ADDRESS,
 	                                               NULL);
 	gtk_tree_view_column_set_sizing(col, GTK_TREE_VIEW_COLUMN_FIXED);
 	gtk_tree_view_append_column(tv, col);
 
 	col = gtk_tree_view_column_new();
-	gtk_tree_view_column_set_title(col, "Disassembly");
+	gtk_tree_view_column_set_title(col, _("Disassembly"));
 
 	cell = gtk_cell_renderer_text_new();
 	g_object_set(cell, "xpad", 10, NULL);
@@ -1051,7 +1103,7 @@ static void tilem_disasm_view_class_init(TilemDisasmViewClass *klass)
 	parent_class = g_type_class_peek_parent(klass);
 
 	widget_class->style_set = &tilem_disasm_view_style_set;
-	widget_class->size_request = &tilem_disasm_view_size_request;
+	//widget_class->size_request = &tilem_disasm_view_size_request;
 	widget_class->size_allocate = &tilem_disasm_view_size_allocate;
 	widget_class->button_press_event = &tilem_disasm_view_button_press;
 	widget_class->popup_menu = &tilem_disasm_view_popup_menu;

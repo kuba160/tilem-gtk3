@@ -45,7 +45,7 @@ static const char* keynames[64] = {
 const TilemHardware hardware_ti86 = {
 	'6', "ti86", "TI-86",
 	TILEM_CALC_HAS_LINK,
-	128, 64, 0x10 * 0x4000, 0x08 * 0x4000, 0, 0x40,
+	128, 64, 0x10 * 0x4000, 0x08 * 0x4000, 0, 0x40, 0x07, 0x07,
 	0, NULL, 0,
 	NUM_HW_REGS, hwregnames,
 	NUM_HW_TIMERS, hwtimernames,
@@ -53,5 +53,5 @@ const TilemHardware hardware_ti86 = {
 	x6_reset, NULL,
 	x6_z80_in, x6_z80_out,
 	x6_z80_wrmem, x6_z80_rdmem, x6_z80_rdmem, NULL,
-	x6_z80_ptimer, tilem_lcd_t6a43_get_data,
+	x6_z80_ptimer, tilem_lcd_t6a43_get_data, NULL,
 	x6_mem_ltop, x6_mem_ptol };

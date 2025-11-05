@@ -1,8 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2010-2011 Thibault Duponchelle
- * Copyright (c) 2010-2012 Benjamin Moody
+ * Copyright (c) 2010-2017 Thibault Duponchelle
+ * Copyright (c) 2010-2014 Benjamin Moody
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -23,6 +23,7 @@
 #endif
 
 #include <stdio.h>
+#include <string.h>
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
 #include <ticalcs.h>
@@ -31,6 +32,9 @@
 #include "gui.h"
 #include "files.h"
 #include "msgbox.h"
+
+/* Zoom mode settings */
+enum { ZMODE_64, ZMODE_240 };
 
 /* Set size hints for the toplevel window */
 static void set_size_hints(GtkWidget *widget, gpointer data)
@@ -67,12 +71,47 @@ static gboolean window_maximized(TilemEmulatorWindow *ewin)
 	                              | GDK_WINDOW_STATE_FULLSCREEN));
 }
 
-static gboolean screen_repaint(GtkWidget *w, GdkEventExpose *ev G_GNUC_UNUSED,
+static void
+put_pixel (GdkPixbuf *pixbuf, int x, int y, gboolean pixel_is_on)
+{
+	int width, height, rowstride, n_channels;
+	guchar *pixels, *p;
+
+	n_channels = gdk_pixbuf_get_n_channels (pixbuf);
+
+	g_assert (gdk_pixbuf_get_colorspace (pixbuf) == GDK_COLORSPACE_RGB);
+	g_assert (gdk_pixbuf_get_bits_per_sample (pixbuf) == 8);
+	g_assert (n_channels == 3);
+
+	width = gdk_pixbuf_get_width (pixbuf);
+	height = gdk_pixbuf_get_height (pixbuf);
+
+	g_assert (x >= 0 && x < width);
+	g_assert (y >= 0 && y < height);
+
+	rowstride = gdk_pixbuf_get_rowstride (pixbuf);
+	pixels = gdk_pixbuf_get_pixels (pixbuf);
+
+	p = pixels + y * rowstride + x * n_channels;
+	if(pixel_is_on) {
+		p[0] = 0;
+		p[1] = 0;
+		p[2] = 0;
+	} else {
+		p[0] = 255;
+		p[1] = 255;
+		p[2] = 255;
+	}
+		
+}
+
+static gboolean screen_repaint(GtkWidget *w, cairo_t *cr,
                                TilemEmulatorWindow *ewin)
 {
 	GtkAllocation alloc;
 	GdkWindow *win;
 	GtkStyle *style;
+	gboolean drawrgb;
 
 	gtk_widget_get_allocation(w, &alloc);
 
@@ -84,29 +123,73 @@ static gboolean screen_repaint(GtkWidget *w, GdkEventExpose *ev G_GNUC_UNUSED,
 		ewin->lcd_image_width = alloc.width;
 		ewin->lcd_image_height = alloc.height;
 		g_free(ewin->lcd_image_buf);
-		ewin->lcd_image_buf = g_new(byte, alloc.width * alloc.height);
+		ewin->lcd_image_buf = g_new(byte, alloc.width * alloc.height * 3);
 	}
 
 	/* Draw LCD contents into the image buffer */
 
 	g_mutex_lock(ewin->emu->lcd_mutex);
 	ewin->emu->lcd_update_pending = FALSE;
-	tilem_draw_lcd_image_indexed(ewin->emu->lcd_buffer,
-	                             ewin->lcd_image_buf,
-	                             alloc.width, alloc.height, alloc.width,
-	                             (ewin->lcd_smooth_scale
-	                              ? TILEM_SCALE_SMOOTH
-	                              : TILEM_SCALE_FAST));
+
+        if (ewin->emu->lcd_buffer->format == TILEM_LCD_BUF_SRGB_63) {
+	        tilem_draw_lcd_image_rgb(ewin->emu->lcd_buffer,
+	                                 ewin->lcd_image_buf,
+	                                 alloc.width, alloc.height,
+	                                 alloc.width * 3, 3, NULL,
+	                                 (ewin->lcd_smooth_scale
+	                                  ? TILEM_SCALE_SMOOTH
+	                                  : TILEM_SCALE_FAST));
+	        drawrgb = TRUE;
+        }
+        else {
+	        tilem_draw_lcd_image_indexed(ewin->emu->lcd_buffer,
+	                                     ewin->lcd_image_buf,
+	                                     alloc.width, alloc.height,
+	                                     alloc.width,
+	                                     (ewin->lcd_smooth_scale
+	                                      ? TILEM_SCALE_SMOOTH
+	                                      : TILEM_SCALE_FAST));
+	        drawrgb = FALSE;
+        }
 	g_mutex_unlock(ewin->emu->lcd_mutex);
 
 	/* Render buffer to the screen */
 
 	win = gtk_widget_get_window(w);
-	style = gtk_widget_get_style(w);
-	gdk_draw_indexed_image(win, style->fg_gc[GTK_STATE_NORMAL], 0, 0,
-	                       alloc.width, alloc.height, GDK_RGB_DITHER_NONE,
-	                       ewin->lcd_image_buf, alloc.width,
-	                       ewin->lcd_cmap);
+	
+	GdkPixbuf* pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, FALSE, 8, alloc.width, alloc.height);
+	int x, y;
+	for(y = 0; y < alloc.height; y++) {
+		for(x = 0; x < alloc.width; x++) {
+			if(ewin->lcd_image_buf[(y*alloc.width)+x] > 128) {
+				put_pixel(pixbuf, x, y, TRUE);
+			} else {
+				put_pixel(pixbuf, x, y, FALSE);
+			}
+		}
+	}
+	
+	
+	gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
+	cairo_paint(cr);
+
+	if (drawrgb) {
+		//gdk_cairo_set_source_pixbuf(cr, ewin->lcd_image_buf, 0, 0);
+		//cairo_paint(cr);
+		//gdk_draw_rgb_image(win, style->fg_gc[GTK_STATE_NORMAL], 0, 0,
+		//                   alloc.width, alloc.height,
+		//                   GDK_RGB_DITHER_NORMAL,
+		//                   ewin->lcd_image_buf, alloc.width * 3);
+	} else {
+		//gdk_cairo_set_source_pixbuf(cr, ewin->lcd_image_buf, 0, 0);
+		//cairo_paint(cr);
+		//gdk_draw_indexed_image(win, style->fg_gc[GTK_STATE_NORMAL],
+		//                       0, 0, alloc.width, alloc.height,
+		//                       GDK_RGB_DITHER_NONE,
+		//                       ewin->lcd_image_buf, alloc.width,
+		//                       ewin->lcd_cmap);
+	}
+
 	return TRUE;
 }
 
@@ -147,12 +230,12 @@ static void screen_restyle(GtkWidget* w, GtkStyle* oldstyle G_GNUC_UNUSED,
 
 	/* Generate a new palette, and convert it into GDK format */
 
-	if (ewin->lcd_cmap)
-		gdk_rgb_cmap_free(ewin->lcd_cmap);
+	//if (ewin->lcd_cmap)
+	//	gdk_rgb_cmap_free(ewin->lcd_cmap);
 
 	palette = tilem_color_palette_new(r_light, g_light, b_light,
 					  r_dark, g_dark, b_dark, gamma);
-	ewin->lcd_cmap = gdk_rgb_cmap_new(palette, 256);
+	//ewin->lcd_cmap = gdk_rgb_cmap_new(palette, 256);
 	tilem_free(palette);
 
 	gtk_widget_queue_draw(ewin->lcd);
@@ -208,10 +291,10 @@ static void skin_size_allocate(GtkWidget *widget, GtkAllocation *alloc,
 	gtk_layout_move(GTK_LAYOUT(widget), ewin->lcd,
 	                lcdleft, lcdtop);
 
-	ewin->zoom_factor = r / ewin->base_zoom;
+	ewin->zoom_factor[ewin->zoom_mode] = r / ewin->base_zoom;
 
-	if (ewin->zoom_factor <= 1.0)
-		ewin->zoom_factor = 1.0;
+	if (ewin->zoom_factor[ewin->zoom_mode] <= 1.0)
+		ewin->zoom_factor[ewin->zoom_mode] = 1.0;
 }
 
 static void noskin_size_allocate(G_GNUC_UNUSED GtkWidget *widget,
@@ -219,6 +302,7 @@ static void noskin_size_allocate(G_GNUC_UNUSED GtkWidget *widget,
 {
 	TilemEmulatorWindow *ewin = data;
 	int lcdwidth, lcdheight;
+	gdouble z;
 
 	g_return_if_fail(ewin->emu->calc != NULL);
 
@@ -226,12 +310,10 @@ static void noskin_size_allocate(G_GNUC_UNUSED GtkWidget *widget,
 	lcdheight = ewin->emu->calc->hw.lcdheight;
 
 	if (alloc->width > alloc->height)
-		ewin->zoom_factor = (gdouble) alloc->width / lcdwidth;
+		z = (gdouble) alloc->width / lcdwidth;
 	else
-		ewin->zoom_factor = (gdouble) alloc->height / lcdheight;
-
-	if (ewin->zoom_factor <= 1.0)
-		ewin->zoom_factor = 1.0;
+		z = (gdouble) alloc->height / lcdheight;
+	ewin->zoom_factor[ewin->zoom_mode] = MAX(z, 1.0);
 }
 
 /* Used when you load another skin */
@@ -329,8 +411,10 @@ void redraw_screen(TilemEmulatorWindow *ewin)
 		ewin->base_zoom = 1.0;
 	}
 
-	curwidth = defwidth * ewin->base_zoom * ewin->zoom_factor + 0.5;
-	curheight = defheight * ewin->base_zoom * ewin->zoom_factor + 0.5;
+	curwidth = (defwidth * ewin->base_zoom
+	            * ewin->zoom_factor[ewin->zoom_mode]) + 0.5;
+	curheight = (defheight * ewin->base_zoom
+	             * ewin->zoom_factor[ewin->zoom_mode]) + 0.5;
 
 	gtk_widget_set_can_focus(emuwin, TRUE);
 
@@ -341,7 +425,7 @@ void redraw_screen(TilemEmulatorWindow *ewin)
 				       | GDK_DROP_FINISHED
 				       | GDK_DRAG_MOTION));
 
-	g_signal_connect(ewin->lcd, "expose-event",
+	g_signal_connect(ewin->lcd, "draw",
 	                 G_CALLBACK(screen_repaint), ewin);
 	g_signal_connect(ewin->lcd, "style-set",
 	                 G_CALLBACK(screen_restyle), ewin);
@@ -395,7 +479,7 @@ void redraw_screen(TilemEmulatorWindow *ewin)
 
 	if (err) {
 		messagebox01(GTK_WINDOW(ewin->window), GTK_MESSAGE_ERROR,
-		             "Unable to load skin", "%s", err->message);
+		             _("Unable to load skin"), "%s", err->message);
 		g_error_free(err);
 	}
 }
@@ -406,7 +490,8 @@ static void window_destroy(G_GNUC_UNUSED GtkWidget *w, gpointer data)
 
 	if (!window_maximized(ewin))
 		tilem_config_set("settings",
-		                 "zoom/r", ewin->zoom_factor,
+		                 "zoom/r", ewin->zoom_factor[ZMODE_64],
+		                 "zoom_240/r", ewin->zoom_factor[ZMODE_240],
 		                 NULL);
 
 	ewin->window = ewin->layout = ewin->lcd = ewin->background = NULL;
@@ -424,11 +509,14 @@ TilemEmulatorWindow *tilem_emulator_window_new(TilemCalcEmulator *emu)
 	tilem_config_get("settings",
 	                 "skin_disabled/b", &ewin->skin_disabled,
 	                 "smooth_scaling/b=1", &ewin->lcd_smooth_scale,
-	                 "zoom/r=2.0", &ewin->zoom_factor,
+	                 "zoom/r=2.0", &ewin->zoom_factor[ZMODE_64],
+	                 "zoom_240/r=1.0", &ewin->zoom_factor[ZMODE_240],
 	                 NULL);
 
-	if (ewin->zoom_factor <= 1.0)
-		ewin->zoom_factor = 1.0;
+	if (ewin->zoom_factor[ZMODE_64] <= 1.0)
+		ewin->zoom_factor[ZMODE_64] = 1.0;
+	if (ewin->zoom_factor[ZMODE_240] <= 1.0)
+		ewin->zoom_factor[ZMODE_240] = 1.0;
 
 	/* Create the window */
 	ewin->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -448,6 +536,8 @@ TilemEmulatorWindow *tilem_emulator_window_new(TilemCalcEmulator *emu)
 	                 G_CALLBACK(key_press_event), ewin);
 	g_signal_connect(ewin->window, "key-release-event",
 	                 G_CALLBACK(key_release_event), ewin);
+	g_signal_connect(ewin->window, "focus-out-event",
+	                 G_CALLBACK(focus_out_event), ewin);
 
 	build_menu(ewin);
 
@@ -481,8 +571,8 @@ void tilem_emulator_window_free(TilemEmulatorWindow *ewin)
 		g_free(ewin->skin);
 	}
 
-	if (ewin->lcd_cmap)
-		gdk_rgb_cmap_free(ewin->lcd_cmap);
+	//if (ewin->lcd_cmap)
+	//	gdk_rgb_cmap_free(ewin->lcd_cmap);
 
 	g_slice_free(TilemEmulatorWindow, ewin);
 }
@@ -516,6 +606,8 @@ void tilem_emulator_window_calc_changed(TilemEmulatorWindow *ewin)
 {
 	const char *model;
 	char *name = NULL, *path;
+	const char *fallback = NULL;
+	GtkAction *action;
 
 	g_return_if_fail(ewin != NULL);
 	g_return_if_fail(ewin->emu != NULL);
@@ -528,15 +620,30 @@ void tilem_emulator_window_calc_changed(TilemEmulatorWindow *ewin)
 
 	model = ewin->emu->calc->hw.name;
 
+	if (ewin->emu->calc->hw.lcdheight >= 240)
+		ewin->zoom_mode = ZMODE_240;
+	else
+		ewin->zoom_mode = ZMODE_64;
+
 	tilem_config_get(model,
 	                 "skin/f", &name,
 	                 NULL);
 
-	if (!name)
+	if (!name) {
 		name = g_strdup_printf("%s.skn", model);
+
+		/* workaround for the fact that certain skins aren't
+		   included with tilem */
+		if (!strncmp(model, "ti83p", 5))
+			fallback = "ti83p.skn";
+		else if (!strncmp(model, "ti84p", 5))
+			fallback = "ti84p.skn";
+	}
 
 	if (!g_path_is_absolute(name)) {
 		path = get_shared_file_path("skins", name, NULL);
+		if (!path && fallback)
+			path = get_shared_file_path("skins", fallback, NULL);
 		tilem_emulator_window_set_skin(ewin, path);
 		g_free(path);
 	}
@@ -545,6 +652,17 @@ void tilem_emulator_window_calc_changed(TilemEmulatorWindow *ewin)
 	}
 
 	g_free(name);
+
+	/* if calc does not have a link port, disable the link-setup
+	   action and disconnect external cable (if any)*/
+	action = gtk_action_group_get_action(ewin->actions, "link-setup");
+	if (ewin->emu->calc->hw.flags & TILEM_CALC_HAS_LINK) {
+		gtk_action_set_sensitive(action, TRUE);
+	}
+	else {
+		gtk_action_set_sensitive(action, FALSE);
+		tilem_calc_emulator_set_link_cable(ewin->emu, NULL);
+	}
 }
 
 void tilem_emulator_window_refresh_lcd(TilemEmulatorWindow *ewin)
@@ -588,8 +706,9 @@ void display_lcdimage_into_terminal(TilemEmulatorWindow *ewin)
 	/* Request user to know which char user wants */	
 	
 	printf("Which char to display FOR BLACK?\n");
-	scanf("%c", &c); /* Choose wich char for the black */	
-	
+	if(!scanf("%c", &c))  /* Choose wich char for the black */	
+		return;
+
 	//printf("Which char to display FOR GRAY ?\n");
 	//scanf("%c", &b); /* Choose wich char for the black */	
 	

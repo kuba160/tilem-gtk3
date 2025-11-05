@@ -28,6 +28,7 @@
 #include <tilem.h>
 
 #include "x4.h"
+#include "../gettext.h"
 
 static void set_lcd_wait_timer(TilemCalc* calc)
 {
@@ -274,7 +275,7 @@ byte x4_z80_in(TilemCalc* calc, dword port)
 			curtime = 0;
 		}
 		curtime += calc->hwregs[CLOCK_DIFF];
-		return (curtime >> ((port - 0x45) * 8));
+		return (curtime >> (((port & 0xff) - 0x45) * 8));
 
 	case 0x4C:
 		return(0x22);
@@ -311,7 +312,7 @@ byte x4_z80_in(TilemCalc* calc, dword port)
 		return(0);
 	}
 
-	tilem_warning(calc, "Input from port %x", port);
+	tilem_warning(calc, _("Input from port %x"), port);
 	return(0x00);
 }
 
@@ -379,6 +380,20 @@ void x4_z80_out(TilemCalc* calc, dword port, byte value)
 
 	case 0x01:
 		tilem_keypad_set_group(calc, value);
+		break;
+
+	case 0x02:
+		if (!(value & 0x01))
+			calc->z80.interrupts &= ~TILEM_INTERRUPT_ON_KEY;
+
+		if (!(value & 0x02))
+			calc->z80.interrupts &= ~TILEM_INTERRUPT_TIMER1;
+
+		if (!(value & 0x04))
+			calc->z80.interrupts &= ~TILEM_INTERRUPT_TIMER2;
+
+		if (!(value & 0x10))
+			calc->z80.interrupts &= ~TILEM_INTERRUPT_LINK_ACTIVE;
 		break;
 
 	case 0x03:
@@ -521,13 +536,14 @@ void x4_z80_out(TilemCalc* calc, dword port, byte value)
 	case 0x14:
 		if (calc->hwregs[PROTECTSTATE] == 7) {
 			if (value & 1)
-				tilem_message(calc, "Flash unlocked");
+				tilem_message(calc, _("Flash unlocked"));
 			else
-				tilem_message(calc, "Flash locked");
+				tilem_message(calc, _("Flash locked"));
 			calc->flash.unlock = value&1;
 		}
 		else {
-			tilem_warning(calc, "Writing to protected port 14");
+			tilem_warning(calc, _("Writing to protected port %02x"),
+			              port & 0xff);
 		}
 		break;
 
@@ -571,7 +587,8 @@ void x4_z80_out(TilemCalc* calc, dword port, byte value)
 			calc->flash.overridegroup = value & 3;
 		}
 		else {
-			tilem_warning(calc, "Writing to protected port 21");
+			tilem_warning(calc, _("Writing to protected port %02x"),
+			              port & 0xff);
 		}
 		break;
 
@@ -580,7 +597,8 @@ void x4_z80_out(TilemCalc* calc, dword port, byte value)
 			calc->hwregs[PORT22] = value;
 		}
 		else {
-			tilem_warning(calc, "Writing to protected port 22");
+			tilem_warning(calc, _("Writing to protected port %02x"),
+			              port & 0xff);
 		}
 		break;
 
@@ -589,7 +607,8 @@ void x4_z80_out(TilemCalc* calc, dword port, byte value)
 			calc->hwregs[PORT23] = value;
 		}
 		else {
-			tilem_warning(calc, "Writing to protected port 23");
+			tilem_warning(calc, _("Writing to protected port %02x"),
+			              port & 0xff);
 		}
 		break;
 
@@ -599,7 +618,8 @@ void x4_z80_out(TilemCalc* calc, dword port, byte value)
 			calc->hwregs[NO_EXEC_RAM_LOWER] = value * 0x400;
 		}
 		else {
-			tilem_warning(calc, "Writing to protected port 25");
+			tilem_warning(calc, _("Writing to protected port %02x"),
+			              port & 0xff);
 		}
 		break;
 
@@ -609,7 +629,8 @@ void x4_z80_out(TilemCalc* calc, dword port, byte value)
 			calc->hwregs[NO_EXEC_RAM_UPPER] = value * 0x400;
 		}
 		else {
-			tilem_warning(calc, "Writing to protected port 26");
+			tilem_warning(calc, _("Writing to protected port %02x"),
+			              port & 0xff);
 		}
 		break;
 

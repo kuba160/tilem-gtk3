@@ -1,7 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2010-2011 Thibault Duponchelle
+ * Copyright (c) 2010-2017 Thibault Duponchelle
+ * Copyright (c) 2012 Benjamin Moody
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -89,37 +90,31 @@ static gboolean prompt_overwrite(GtkWindow *win, const char *dirname,
 
 	dlg = gtk_message_dialog_new
 		(win, GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
-		 (nconflicts == 1
-		  ? "Replace existing file?"
-		  : "Replace existing files?"));
+		 _n("Replace existing file?",
+		    "Replace existing files?",
+		    nconflicts));
 
 	gtk_message_dialog_format_secondary_text
 		(GTK_MESSAGE_DIALOG(dlg),
-		 (nconflicts == 1
-		  ? "The file \"%2$s\" already exists in \"%1$s\"."
-		  "  Replacing it will overwrite its contents."
-		  : "The following files already exist in \"%s\"."
-		  "  Replacing them will overwrite their contents:\n%s"),
+		 _n("The file \"%2$s\" already exists in \"%1$s\"."
+		    "  Replacing it will overwrite its contents.",
+		    "The following files already exist in \"%s\"."
+		    "  Replacing them will overwrite their contents:\n%s",
+		    nconflicts),
 		 dname, conflicts->str);
 
 	g_free(dname);
 	g_string_free(conflicts, TRUE);
 
 	gtk_dialog_add_button(GTK_DIALOG(dlg),
-	                      GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL);
+	                      _("Cancel"), GTK_RESPONSE_CANCEL);
 
-	btn = gtk_button_new_with_mnemonic("_Replace");
+	btn = gtk_button_new_with_mnemonic(_("_Replace"));
 	gtk_button_set_image(GTK_BUTTON(btn),
-	                     gtk_image_new_from_stock(GTK_STOCK_SAVE,
-	                                              GTK_ICON_SIZE_BUTTON));
+	gtk_image_new_from_icon_name("document-save", GTK_ICON_SIZE_BUTTON));
 	gtk_widget_show(btn);
 	gtk_dialog_add_action_widget(GTK_DIALOG(dlg), btn,
 	                             GTK_RESPONSE_ACCEPT);
-
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(dlg),
-	                                        GTK_RESPONSE_ACCEPT,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
 
 	response = gtk_dialog_run(GTK_DIALOG(dlg));
 	gtk_widget_destroy(dlg);
@@ -142,10 +137,10 @@ static gboolean prompt_save_single(TilemReceiveDialog *rcvdialog, TilemVarEntry 
 
 	pattern = g_strconcat("*.", tve->file_ext, NULL);
 
-	filename = prompt_save_file("Save File", GTK_WINDOW(rcvdialog->window),
+	filename = prompt_save_file(_("Save File"), GTK_WINDOW(rcvdialog->window),
 	                            default_filename_r, dir,
 	                            tve->filetype_desc, pattern,
-	                            "All files", "*",
+	                            _("All files"), "*",
 	                            NULL);
 	g_free(default_filename_r);
 	g_free(pattern);
@@ -194,18 +189,18 @@ static gboolean prompt_save_group(TilemReceiveDialog *rcvdialog, GList *rows)
 
 	fext = g_ascii_strdown(tifiles_fext_of_group(tfmodel), -1);
 	pattern = g_strconcat("*.", fext, NULL);
-	default_filename = g_strdup_printf("untitled.%s",
+	default_filename = g_strdup_printf(_("untitled.%s"),
 	                                   (can_group ? fext : "tig"));
 	g_free(fext);
 
 	model_str = tifiles_model_to_string(tfmodel);
-	pattern_desc = g_strdup_printf("%s group files", model_str);
+	pattern_desc = g_strdup_printf(_("%s group files"), model_str);
 
-	filename = prompt_save_file("Save File", GTK_WINDOW(rcvdialog->window),
+	filename = prompt_save_file(_("Save File"), GTK_WINDOW(rcvdialog->window),
 	                            default_filename, dir,
 	                            pattern_desc, (can_group ? pattern : ""),
-	                            "TIGroup files", "*.tig",
-	                            "All files", "*",
+	                            _("TIGroup files"), "*.tig",
+	                            _("All files"), "*",
 	                            NULL);
 
 	g_free(default_filename);
@@ -254,7 +249,7 @@ static gboolean prompt_save_multiple(TilemReceiveDialog *rcvdialog, GList *rows)
 	tilem_config_get("download", "receivefile_recentdir/f", &dir, NULL);	
 	if (!dir) dir = g_get_current_dir();
 
-	dir_selected = prompt_select_dir("Save Files to Directory",
+	dir_selected = prompt_select_dir(_("Save Files to Directory"),
 	                                 GTK_WINDOW(rcvdialog->window),
 	                                 dir);
 	g_free(dir);
@@ -426,7 +421,7 @@ static GtkWidget *create_varlist(TilemReceiveDialog *rcvdialog)
 
 	if (is_81) {
 		c1 = gtk_tree_view_column_new_with_attributes
-			("Slot", renderer, "text", COL_SLOT_STR, NULL);
+			(_("Slot"), renderer, "text", COL_SLOT_STR, NULL);
 
 		gtk_tree_view_column_set_sizing(c1, GTK_TREE_VIEW_COLUMN_FIXED);
 		gtk_tree_view_column_set_sort_column_id(c1, COL_SLOT_STR);
@@ -434,7 +429,7 @@ static GtkWidget *create_varlist(TilemReceiveDialog *rcvdialog)
 	}
 
 	c2 = gtk_tree_view_column_new_with_attributes
-		("Name", renderer, "text", COL_NAME_STR, NULL);
+		(_("Name"), renderer, "text", COL_NAME_STR, NULL);
 
 	gtk_tree_view_column_set_sizing(c2, GTK_TREE_VIEW_COLUMN_FIXED);
 	gtk_tree_view_column_set_sort_column_id(c2, COL_NAME_STR);
@@ -443,7 +438,7 @@ static GtkWidget *create_varlist(TilemReceiveDialog *rcvdialog)
 
 	if (!is_81) {
 		c3 = gtk_tree_view_column_new_with_attributes
-			("Type", renderer, "text", COL_TYPE_STR, NULL);
+			(_("Type"), renderer, "text", COL_TYPE_STR, NULL);
 		
 		gtk_tree_view_column_set_sizing(c3, GTK_TREE_VIEW_COLUMN_FIXED);
 		gtk_tree_view_column_set_sort_column_id(c3, COL_TYPE_STR);
@@ -453,7 +448,7 @@ static GtkWidget *create_varlist(TilemReceiveDialog *rcvdialog)
 	renderer = gtk_cell_renderer_text_new();
 	g_object_set(renderer, "xalign", 1.0, NULL);
 	c4 = gtk_tree_view_column_new_with_attributes
-		("Size", renderer, "text", COL_SIZE_STR, NULL);
+		(_("Size"), renderer, "text", COL_SIZE_STR, NULL);
 
 	gtk_tree_view_column_set_sizing(c4, GTK_TREE_VIEW_COLUMN_FIXED);
 	gtk_tree_view_column_set_sort_column_id(c4, COL_SIZE);
@@ -489,9 +484,9 @@ static GtkTreeModel* fill_varlist(TilemReceiveDialog *rcvdialog)
 		tve = l->data;
 		gtk_list_store_append(store, &iter);
 #ifdef G_OS_WIN32
-		size_str = g_strdup_printf("%d", tve->size);
+		size_str = g_strdup_printf(_("%d"), tve->size);
 #else
-		size_str = g_strdup_printf("%'d", tve->size);
+		size_str = g_strdup_printf(_("%'d"), tve->size);
 #endif
 		gtk_list_store_set(store, &iter,
 		                   COL_ENTRY, tve,
@@ -530,26 +525,21 @@ TilemReceiveDialog* tilem_receive_dialog_new(TilemCalcEmulator *emu)
 	gtk_window_set_transient_for(GTK_WINDOW(rcvdialog->window),
 	                             GTK_WINDOW(emu->ewin->window));
 
-	gtk_window_set_title(GTK_WINDOW(rcvdialog->window), "Receive File");
+	gtk_window_set_title(GTK_WINDOW(rcvdialog->window), _("Receive File"));
 
 	btn = gtk_dialog_add_button(GTK_DIALOG(rcvdialog->window),
-	                            GTK_STOCK_REFRESH, RESPONSE_REFRESH);
+	                            _("Refresh"), RESPONSE_REFRESH);
 
 	if (is_81)
 		gtk_widget_hide(btn);
 
 	gtk_dialog_add_button(GTK_DIALOG(rcvdialog->window),
-	                      GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL);
+	                      _("Cancel"), GTK_RESPONSE_CANCEL);
 	gtk_dialog_add_button(GTK_DIALOG(rcvdialog->window),
-	                      GTK_STOCK_SAVE, GTK_RESPONSE_ACCEPT);
+	                      _("Save"), GTK_RESPONSE_ACCEPT);
 
 	gtk_dialog_set_default_response(GTK_DIALOG(rcvdialog->window),
 	                                GTK_RESPONSE_ACCEPT);
-	gtk_dialog_set_alternative_button_order(GTK_DIALOG(rcvdialog->window),
-	                                        RESPONSE_REFRESH,
-	                                        GTK_RESPONSE_ACCEPT,
-	                                        GTK_RESPONSE_CANCEL,
-	                                        -1);
 
 	/* Set the size of the dialog */
 	gtk_window_set_default_size(GTK_WINDOW(rcvdialog->window), -1, defheight);
@@ -560,20 +550,20 @@ TilemReceiveDialog* tilem_receive_dialog_new(TilemCalcEmulator *emu)
 	/* Allow scrolling the list because we can't know how many vars the calc contains */
 	scroll = new_scrolled_window(rcvdialog->treeview);
 
-	vbox = gtk_vbox_new(FALSE, 6);
+	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_container_set_border_width(GTK_CONTAINER(vbox), 6);
 	gtk_box_pack_start(GTK_BOX(vbox), GTK_WIDGET(scroll), TRUE, TRUE, 0);
 
-	rcvdialog->mode_box = gtk_hbox_new(FALSE, 6);
-	lbl = gtk_label_new("Save as:");
+	rcvdialog->mode_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	lbl = gtk_label_new(_("Save as:"));
 	gtk_box_pack_start(GTK_BOX(rcvdialog->mode_box), lbl, FALSE, FALSE, 0);
 
-	rb = gtk_radio_button_new_with_mnemonic(NULL, "S_eparate files");
+	rb = gtk_radio_button_new_with_mnemonic(NULL, _("S_eparate files"));
 	gtk_box_pack_start(GTK_BOX(rcvdialog->mode_box), rb, FALSE, FALSE, 0);
 	rcvdialog->multiple_rb = rb;
 
 	rb = gtk_radio_button_new_with_mnemonic_from_widget
-		(GTK_RADIO_BUTTON(rb), "_Group file");
+		(GTK_RADIO_BUTTON(rb), _("_Group file"));
 	gtk_box_pack_start(GTK_BOX(rcvdialog->mode_box), rb, FALSE, FALSE, 0);
 	rcvdialog->group_rb = rb;
 

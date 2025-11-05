@@ -27,6 +27,7 @@
 #include <string.h>
 #include "tilem.h"
 #include "z80.h"
+#include "gettext.h"
 
 static void set_hw_reg(TilemCalc* calc, const char* name, dword value)
 {
@@ -39,7 +40,7 @@ static void set_hw_reg(TilemCalc* calc, const char* name, dword value)
 		}
 	}
 
-	tilem_warning(calc, "Unknown hwreg %s", name);
+	tilem_warning(calc, _("Unknown hwreg %s"), name);
 }
 
 static const char* get_timer_name(TilemCalc* calc, int id)
@@ -80,7 +81,7 @@ static void set_ptimer(TilemCalc* calc, const char* name, dword value,
 		}
 	}
 
-	tilem_warning(calc, "Unknown timer %s", name);
+	tilem_warning(calc, _("Unknown timer %s"), name);
 }
 
 static int load_old_sav_file(TilemCalc* calc, FILE* savfile)
@@ -92,8 +93,13 @@ static int load_old_sav_file(TilemCalc* calc, FILE* savfile)
 
 	/* Read memory mapping */
 
-	if (fread(calc->mempagemap, 1, 4, savfile) < 4)
+	if (fread(b, 1, 4, savfile) < 4)
 		return 1;
+
+	calc->mempagemap[0] = b[0];
+	calc->mempagemap[1] = b[1];
+	calc->mempagemap[2] = b[2];
+	calc->mempagemap[3] = b[3];
 
 	/* Read CPU registers */
 

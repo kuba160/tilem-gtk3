@@ -1,7 +1,7 @@
 /*
  * libtilemcore - Graphing calculator emulation library
  *
- * Copyright (C) 2009-2012 Benjamin Moody
+ * Copyright (C) 2009-2013 Benjamin Moody
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -36,6 +36,7 @@ typedef uint64_t qword;
 /* Structure types */
 typedef struct _TilemHardware TilemHardware;
 typedef struct _TilemCalc TilemCalc;
+typedef struct _TilemLCDBuffer TilemLCDBuffer;
 
 /* Useful macros */
 #if __GNUC__ >= 3
@@ -43,6 +44,7 @@ typedef struct _TilemCalc TilemCalc;
 # define TILEM_ATTR_UNUSED __attribute__((__unused__))
 # define TILEM_ATTR_MALLOC __attribute__((__malloc__))
 # define TILEM_ATTR_PRINTF(x,y) __attribute__((__format__(__printf__,x,y)))
+# define TILEM_ATTR_FMT_ARG(x) __attribute__((__format_arg__(x)))
 # define TILEM_LIKELY(xxx) (__builtin_expect((xxx), 1))
 # define TILEM_UNLIKELY(xxx) (__builtin_expect((xxx), 0))
 #else
@@ -76,6 +78,9 @@ void tilem_free(void* ptr);
 #define tilem_renew(ttt, ppp, nnn) ((ttt*) tilem_realloc((ppp), (nnn) * sizeof(ttt)))
 
 /* Message/error logging */
+
+/* Translate message */
+const char *tilem_gettext(const char *msg) TILEM_ATTR_FMT_ARG(1);
 
 /* Write an informative message.  This can be used to notify the user
    of major occurences, such as changes in the Flash protection.
@@ -175,7 +180,8 @@ enum {
 	TILEM_STOP_LINK_STATE = 16,        /* blacklink state change */
 	TILEM_STOP_LINK_READ_BYTE = 32,    /* graylink finished reading byte */
 	TILEM_STOP_LINK_WRITE_BYTE = 64,   /* graylink finished writing byte */
-	TILEM_STOP_LINK_ERROR = 128        /* graylink encountered error */
+	TILEM_STOP_LINK_ERROR = 128,       /* graylink encountered error */
+	TILEM_STOP_AUDIO_BUFFER = 256	   /* audio filter filled buffer */
 };
 
 /* Types of interrupt */
@@ -705,6 +711,7 @@ enum {
 	TILEM_CALC_TI84P = '4',	       /* TI-84 Plus */
 	TILEM_CALC_TI84P_SE = 'z',     /* TI-84 Plus Silver Edition */
 	TILEM_CALC_TI84P_NSPIRE = 'n', /* TI-Nspire 84 Plus emulator */
+	TILEM_CALC_TI84PC_SE = 'c',    /* TI-84 Plus C SE */
 	TILEM_CALC_TI85 = '5',	       /* TI-85 */
 	TILEM_CALC_TI86 = '6'	       /* TI-86 */
 };
@@ -716,7 +723,8 @@ enum {
 	TILEM_CALC_HAS_USB         = 4,  /* Has USB controller */
 	TILEM_CALC_HAS_FLASH       = 8,  /* Has (writable) Flash */
 	TILEM_CALC_HAS_T6A04       = 16, /* Has separate LCD driver */
-	TILEM_CALC_HAS_MD5_ASSIST  = 32  /* Has hardware MD5 assist */
+	TILEM_CALC_HAS_MD5_ASSIST  = 32, /* Has hardware MD5 assist */
+	TILEM_CALC_HAS_COLOR       = 64	 /* Has color screen */
 };
 
 /* Calculator hardware description */
@@ -731,6 +739,8 @@ struct _TilemHardware {
 	dword romsize, ramsize;	 /* Size of ROM and RAM */
 	dword lcdmemsize;	 /* Size of external LCD memory */
 	byte rampagemask;	 /* Bit mask used for RAM page */
+	byte linkportaddr;	 /* Port used for raw link I/O */
+	byte portmask;		 /* Mask of significant bits in I/O ports */
 
 	int nflashsectors;
 	const TilemFlashSector* flashsectors;
@@ -766,6 +776,7 @@ struct _TilemHardware {
 
 	/* Retrieve LCD contents */
 	void    (*get_lcd)      (TilemCalc*, byte*);
+	void    (*get_frame)    (TilemCalc*, TilemLCDBuffer*);
 
 	/* Convert physical <-> logical addresses */
 	dword	(*mem_ltop)	(TilemCalc*, dword);
@@ -780,7 +791,7 @@ struct _TilemCalc {
 	byte* mem;
 	byte* ram;
 	byte* lcdmem;
-	byte mempagemap[4];
+	word mempagemap[4];
 
 	TilemLCD lcd;
 	TilemLinkport linkport;
@@ -840,17 +851,24 @@ enum {
 				   an integer factor */
 };
 
+/* LCD buffer formats */
+enum {
+	TILEM_LCD_BUF_BLACK_128, /* Linear black 0-128 */
+	TILEM_LCD_BUF_SRGB_63    /* sRGB 0-63 */
+};
+
 /* Buffer representing a snapshot of the LCD state */
-typedef struct _TilemLCDBuffer {
-	byte width;             /* Width of LCD */
-	byte height;            /* Height of LCD */
-	byte rowstride;         /* Offset between rows in buffer */
+struct _TilemLCDBuffer {
+	word width;             /* Width of LCD */
+	word height;            /* Height of LCD */
+	word rowstride;         /* Offset between rows in buffer */
 	byte contrast;          /* Contrast value (0-63) */
+	byte format;            /* Data format */
 	dword stamp;            /* Timestamp */
 	dword tmpbufsize;       /* Size of temporary buffer */
 	byte *data;             /* Image data (rowstride*height bytes) */
 	void *tmpbuf;           /* Temporary buffer used for scaling */
-} TilemLCDBuffer;
+};
 
 /* Create new TilemLCDBuffer. */
 TilemLCDBuffer* tilem_lcd_buffer_new(void)
@@ -930,6 +948,100 @@ void tilem_gray_lcd_get_frame(TilemGrayLCD * restrict glcd,
                               TilemLCDBuffer * restrict frm);
 
 
+/* Audio filtering */
+
+typedef struct _TilemAudioFilter TilemAudioFilter;
+
+typedef void (*TilemAudioCallbackFunc)
+	(TilemCalc* calc, TilemAudioFilter* af,
+	 void* buffer, int length, void* user_data);
+
+#define TILEM_AUDIO_UNSIGNED    0
+#define TILEM_AUDIO_SIGNED      1
+#define TILEM_AUDIO_8_BIT       0
+#define TILEM_AUDIO_16_BIT      2
+#define TILEM_AUDIO_BYTE_SWAP   4
+
+enum {
+	TILEM_AUDIO_U8       = TILEM_AUDIO_8_BIT | TILEM_AUDIO_UNSIGNED,
+	TILEM_AUDIO_S8       = TILEM_AUDIO_8_BIT | TILEM_AUDIO_SIGNED,
+	TILEM_AUDIO_U16      = TILEM_AUDIO_16_BIT | TILEM_AUDIO_UNSIGNED,
+	TILEM_AUDIO_S16      = TILEM_AUDIO_16_BIT | TILEM_AUDIO_SIGNED,
+	TILEM_AUDIO_U16_SWAP = TILEM_AUDIO_U16 | TILEM_AUDIO_BYTE_SWAP,
+	TILEM_AUDIO_S16_SWAP = TILEM_AUDIO_S16 | TILEM_AUDIO_BYTE_SWAP,
+#ifdef WORDS_BIGENDIAN
+	TILEM_AUDIO_U16_LE   = TILEM_AUDIO_U16_SWAP,
+	TILEM_AUDIO_S16_LE   = TILEM_AUDIO_S16_SWAP,
+	TILEM_AUDIO_U16_BE   = TILEM_AUDIO_U16,
+	TILEM_AUDIO_S16_BE   = TILEM_AUDIO_S16
+#else
+	TILEM_AUDIO_U16_LE   = TILEM_AUDIO_U16,
+	TILEM_AUDIO_S16_LE   = TILEM_AUDIO_S16,
+	TILEM_AUDIO_U16_BE   = TILEM_AUDIO_U16_SWAP,
+	TILEM_AUDIO_S16_BE   = TILEM_AUDIO_S16_SWAP
+#endif
+};
+
+/* Create a new audio filter and attach to a calculator. */
+TilemAudioFilter* tilem_audio_filter_new(TilemCalc *calc);
+
+/* Detach and free an audio filter. */
+void tilem_audio_filter_free(TilemAudioFilter *af);
+
+/* Set volume.  Input is linear, with 1.0 representing the maximum
+   volume that does not clip. */
+void tilem_audio_filter_set_volume(TilemAudioFilter *af, double v);
+
+/* Set a callback function that will be called when the buffer is
+   full. */
+void tilem_audio_filter_set_callback(TilemAudioFilter *af,
+                                     TilemAudioCallbackFunc func,
+                                     void *data);
+
+/* Set output sampling rate.  This resets the filter and flushes the
+   current output buffer. */
+void tilem_audio_filter_set_rate(TilemAudioFilter *af, int rate);
+
+/* Set number of output channels (must be 1 or 2).  This flushes the
+   output buffer, but does not reset the filter. */
+void tilem_audio_filter_set_channels(TilemAudioFilter *af, int channels);
+
+/* Set output sample format (must be one of the constants above.)
+   This flushes the output buffer, but does not reset the filter. */
+void tilem_audio_filter_set_format(TilemAudioFilter *af, int format);
+
+/* Set an audio buffer.  set_rate(), set_channels(), and set_format()
+   must be called beforehand.  If another buffer was set previously,
+   it will be discarded - call tilem_audio_filter_flush() if you want
+   to flush it instead.  LENGTH must be a multiple of the frame size,
+   and (for 16-bit formats) BUFFER must be correctly aligned for word
+   access. */
+void tilem_audio_filter_set_buffer(TilemAudioFilter *af,
+                                   void *buffer, int length);
+
+/* Begin writing audio samples to the output buffer. */
+void tilem_audio_filter_on(TilemAudioFilter *af);
+
+/* Stop writing audio samples.  Note that stopping and restarting will
+   reset the filter. */
+void tilem_audio_filter_off(TilemAudioFilter *af);
+
+/* Reset audio filter (i.e., ignore link port history and restart from
+   the current point in time.) */
+void tilem_audio_filter_reset(TilemAudioFilter *af);
+
+/* Flush current output buffer (if any), filling the remainder of the
+   buffer with a constant value; when finished, the callback function
+   will be called. */
+void tilem_audio_filter_flush(TilemAudioFilter *af);
+
+/* Get number of bytes written to output buffer */
+int tilem_audio_filter_buffer_count(TilemAudioFilter *af);
+
+/* Get number of bytes remaining in output buffer */
+int tilem_audio_filter_buffer_remaining(TilemAudioFilter *af);
+
+
 /* Miscellaneous functions */
 
 /* Guess calculator type for a ROM file */
@@ -941,6 +1053,7 @@ char tilem_get_sav_type(FILE* savfile);
 /* Check validity of calculator certificate; repair if necessary */
 void tilem_calc_fix_certificate(TilemCalc* calc, byte* cert,
                                 int app_start, int app_end,
+                                unsigned insttab_offset,
                                 unsigned exptab_offset);
 
 #ifdef __cplusplus

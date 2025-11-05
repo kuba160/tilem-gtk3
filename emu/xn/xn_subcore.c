@@ -61,7 +61,7 @@ TilemHardware hardware_ti84pns = {
 	(TILEM_CALC_HAS_LINK | TILEM_CALC_HAS_LINK_ASSIST
 	 | TILEM_CALC_HAS_T6A04 | TILEM_CALC_HAS_FLASH
 	 | TILEM_CALC_HAS_MD5_ASSIST),
-	96, 64, 128 * 0x4000, 8 * 0x4000, 15 * 64, 0x80,
+	96, 64, 128 * 0x4000, 8 * 0x4000, 15 * 64, 0x80, 0x00, 0xff,
 	NUM_FLASH_SECTORS, flashsectors, 3,
 	NUM_HW_REGS, hwregnames,
 	NUM_HW_TIMERS, hwtimernames,
@@ -69,5 +69,5 @@ TilemHardware hardware_ti84pns = {
 	xn_reset, xn_stateloaded,
 	xn_z80_in, xn_z80_out,
 	xn_z80_wrmem, xn_z80_rdmem, xn_z80_rdmem_m1, xn_z80_instr,
-	xn_z80_ptimer, tilem_lcd_t6a04_get_data,
+	xn_z80_ptimer, tilem_lcd_t6a04_get_data, NULL,
 	xn_mem_ltop, xn_mem_ptol };

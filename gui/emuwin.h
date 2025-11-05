@@ -36,14 +36,15 @@ typedef struct _TilemEmulatorWindow {
 	byte* lcd_image_buf;
 	int lcd_image_width;
 	int lcd_image_height;
-	GdkRgbCmap* lcd_cmap;
+	//GdkRgbCmap* lcd_cmap;
 	gboolean lcd_smooth_scale;
 
 	char *skin_file_name;
 	SKIN_INFOS *skin;
 	gboolean skin_disabled; /* A flag to know if skinless or not */
 	gdouble base_zoom;
-	gdouble zoom_factor;
+	int zoom_mode;
+	gdouble zoom_factor[2];
 	GdkWindowState window_state;
 
 	int mouse_key;		/* Key currently pressed by mouse button */

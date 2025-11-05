@@ -2,6 +2,7 @@
  * TilEm II
  *
  * Copyright (c) 2011-2012 Benjamin Moody
+ * Copyright (c) 2017 Thibault Duponchelle
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -75,8 +76,11 @@ static gboolean refresh_lcd(gpointer data)
 static void tmr_screen_update(TilemCalc *calc, void *data)
 {
 	TilemCalcEmulator *emu = data;
+	dword old_stamp;
 
 	g_mutex_lock(emu->lcd_mutex);
+
+	old_stamp = emu->lcd_buffer->stamp;
 
 	if (emu->glcd)
 		tilem_gray_lcd_get_frame(emu->glcd, emu->lcd_buffer);
@@ -97,7 +101,9 @@ static void tmr_screen_update(TilemCalc *calc, void *data)
 		}
 	}
 
-	if (!emu->lcd_update_pending) {
+	/* don't force an update if screen hasn't changed (or if we're
+	   still waiting for the GUI to handle our last update) */
+	if (!emu->lcd_update_pending && emu->lcd_buffer->stamp != old_stamp) {
 		emu->lcd_update_pending = TRUE;
 		g_idle_add_full(G_PRIORITY_DEFAULT, &refresh_lcd, emu, NULL);
 	}
@@ -128,10 +134,16 @@ TilemCalcEmulator *tilem_calc_emulator_new()
 {
 	TilemCalcEmulator *emu = g_new0(TilemCalcEmulator, 1);
 	CalcUpdate *update;
+	int rate, channels;
+	double latency, volume;
+	char *driver;
 
-	emu->calc_mutex = g_mutex_new();
-	emu->calc_wakeup_cond = g_cond_new();
-	emu->lcd_mutex = g_mutex_new();
+	emu->calc_mutex = (GMutex*) g_new(GMutex*, 1);
+	g_mutex_init(emu->calc_mutex);
+	emu->calc_wakeup_cond = (GCond*) g_new(GCond*, 1);
+	g_cond_init(emu->calc_wakeup_cond);
+	emu->lcd_mutex = (GMutex*) g_new(GMutex*, 1);
+	g_mutex_init(emu->lcd_mutex);
 
 	tilem_config_get("emulation",
 	                 "grayscale/b=1", &emu->grayscale,
@@ -139,11 +151,13 @@ TilemCalcEmulator *tilem_calc_emulator_new()
 	                 NULL);
 
 	emu->task_queue = g_queue_new();
-	emu->task_finished_cond = g_cond_new();
+	emu->task_finished_cond = (GCond*) g_new(GCond*, 1);
+	g_cond_init(emu->task_finished_cond);
 
 	emu->timer = g_timer_new();
 
-	emu->pbar_mutex = g_mutex_new();
+	emu->pbar_mutex = (GMutex*) g_new(GMutex*, 1);
+	g_mutex_init(emu->pbar_mutex);
 
 	update = g_new0(CalcUpdate, 1);
 	update->start = &link_update_nop;
@@ -152,6 +166,29 @@ TilemCalcEmulator *tilem_calc_emulator_new()
 	update->pbar = &link_update_nop;
 	update->label = &link_update_nop;
 	emu->link_update = update;
+
+	emu->ext_cable_in = -1;
+	emu->ext_cable_out = -1;
+
+	tilem_config_get("audio",
+	                 "driver/s", &driver,
+	                 "channels/i", &channels,
+	                 "rate/i", &rate,
+	                 "latency/r", &latency,
+	                 "volume/r", &volume,
+	                 NULL);
+
+	if (rate <= 0) rate = DEFAULT_AUDIO_RATE;
+	if (channels < 1 || channels > 2) channels = DEFAULT_AUDIO_CHANNELS;
+	if (latency <= 0.0) latency = DEFAULT_AUDIO_LATENCY;
+	if (volume <= 0.0) volume = DEFAULT_AUDIO_VOLUME;
+
+	emu->audio_options.driver = ((driver && driver[0]) ? driver : NULL);
+	emu->audio_options.rate = rate;
+	emu->audio_options.channels = channels;
+	emu->audio_options.latency = latency;
+	emu->audio_options.format = DEFAULT_AUDIO_FORMAT;
+	emu->audio_volume = volume;
 
 	return emu;
 }
@@ -175,22 +212,26 @@ void tilem_calc_emulator_free(TilemCalcEmulator *emu)
 	g_free(emu->rom_file_name);
 	g_free(emu->state_file_name);
 
-	g_mutex_free(emu->calc_mutex);
-	g_mutex_free(emu->lcd_mutex);
-	g_cond_free(emu->calc_wakeup_cond);
+	g_mutex_clear(emu->calc_mutex);
+	g_mutex_clear(emu->lcd_mutex);
+	g_cond_clear(emu->calc_wakeup_cond);
 
-	g_cond_free(emu->task_finished_cond);
+	g_cond_clear(emu->task_finished_cond);
 	g_queue_free(emu->task_queue);
 
 	g_timer_destroy(emu->timer);
 
-	g_mutex_free(emu->pbar_mutex);
+	g_mutex_clear(emu->pbar_mutex);
 	g_free(emu->link_update);
+
+	g_free(emu->audio_options.driver);
 
 	if (emu->lcd_buffer)
 		tilem_lcd_buffer_free(emu->lcd_buffer);
 	if (emu->tmp_lcd_buffer)
 		tilem_lcd_buffer_free(emu->tmp_lcd_buffer);
+	if (emu->audio_filter)
+		tilem_audio_filter_free(emu->audio_filter);
 	if (emu->glcd)
 		tilem_gray_lcd_free(emu->glcd);
 	if (emu->calc)
@@ -252,7 +293,7 @@ gboolean tilem_calc_emulator_load_state(TilemCalcEmulator *emu,
 	if (!rname) {
 		g_set_error(err, TILEM_EMULATOR_ERROR,
 		            TILEM_EMULATOR_ERROR_NO_ROM,
-		            "No ROM file specified");
+		            _("No ROM file specified"));
 		g_free(rname);
 		g_free(sname);
 		return FALSE;
@@ -266,7 +307,7 @@ gboolean tilem_calc_emulator_load_state(TilemCalcEmulator *emu,
 		dname = g_filename_display_basename(rname);
 		g_set_error(err, G_FILE_ERROR,
 		            g_file_error_from_errno(errnum),
-		            "Unable to open %s for reading: %s",
+		            _("Unable to open %s for reading: %s"),
 		            dname, g_strerror(errnum));
 		g_free(dname);
 		g_free(rname);
@@ -286,7 +327,7 @@ gboolean tilem_calc_emulator_load_state(TilemCalcEmulator *emu,
 		dname = g_filename_display_basename(sname);
 		g_set_error(err, G_FILE_ERROR,
 		            g_file_error_from_errno(errnum),
-		            "Unable to open %s for reading: %s",
+		            _("Unable to open %s for reading: %s"),
 		            dname, g_strerror(errnum));
 		g_free(dname);
 		g_free(rname);
@@ -312,8 +353,8 @@ gboolean tilem_calc_emulator_load_state(TilemCalcEmulator *emu,
 			dname = g_filename_display_basename(rname);
 			g_set_error(err, TILEM_EMULATOR_ERROR,
 			            TILEM_EMULATOR_ERROR_INVALID_ROM,
-			            "The file %s is not a recognized"
-			            " calculator ROM file.",
+			            _("The file %s is not a recognized"
+			              " calculator ROM file."),
 			            dname);
 			g_free(dname);
 		}
@@ -333,7 +374,7 @@ gboolean tilem_calc_emulator_load_state(TilemCalcEmulator *emu,
 	if (tilem_calc_load_state(calc, romfile, savfile)) {
 		g_set_error(err, TILEM_EMULATOR_ERROR,
 		            TILEM_EMULATOR_ERROR_INVALID_STATE,
-		            "The specified ROM or state file is invalid.");
+		            _("The specified ROM or state file is invalid."));
 		fclose(romfile);
 		if (savfile) fclose(savfile);
 		g_free(rname);
@@ -357,7 +398,9 @@ gboolean tilem_calc_emulator_load_state(TilemCalcEmulator *emu,
 
 	cancel_animation(emu);
 
-	if (emu->glcd)
+	if (emu->audio_filter)
+		tilem_audio_filter_free(emu->audio_filter);
+ 	if (emu->glcd)
 		tilem_gray_lcd_free(emu->glcd);
 	if (emu->calc)
 		tilem_calc_free(emu->calc);
@@ -366,11 +409,13 @@ gboolean tilem_calc_emulator_load_state(TilemCalcEmulator *emu,
 	emu->lcd_buffer = tilem_lcd_buffer_new();
 	emu->tmp_lcd_buffer = tilem_lcd_buffer_new();
 
-	if (emu->grayscale)
+	if (emu->grayscale && !(calc->hw.flags & TILEM_CALC_HAS_COLOR))
 		emu->glcd = tilem_gray_lcd_new(calc, GRAY_WINDOW_SIZE,
 		                               GRAY_SAMPLE_INT);
 	else
 		emu->glcd = NULL;
+
+	emu->audio_filter = NULL;
 
 	tilem_z80_add_timer(calc, MICROSEC_PER_FRAME,
 	                    MICROSEC_PER_FRAME, 1,
@@ -422,7 +467,7 @@ gboolean tilem_calc_emulator_revert_state(TilemCalcEmulator *emu, GError **err)
 			dname = g_filename_display_basename(emu->rom_file_name);
 			g_set_error(err, G_FILE_ERROR,
 			            g_file_error_from_errno(errnum),
-			            "Unable to open %s for reading: %s",
+			            _("Unable to open %s for reading: %s"),
 			            dname, g_strerror(errnum));
 			g_free(dname);
 			return FALSE;
@@ -440,7 +485,7 @@ gboolean tilem_calc_emulator_revert_state(TilemCalcEmulator *emu, GError **err)
 		dname = g_filename_display_basename(emu->state_file_name);
 		g_set_error(err, G_FILE_ERROR,
 		            g_file_error_from_errno(errnum),
-		            "Unable to open %s for reading: %s",
+		            _("Unable to open %s for reading: %s"),
 		            dname, g_strerror(errnum));
 		g_free(dname);
 		if (romfile) fclose(romfile);
@@ -454,7 +499,7 @@ gboolean tilem_calc_emulator_revert_state(TilemCalcEmulator *emu, GError **err)
 	if (tilem_calc_load_state(emu->calc, romfile, savfile)) {
 		g_set_error(err, TILEM_EMULATOR_ERROR,
 		            TILEM_EMULATOR_ERROR_INVALID_STATE,
-		            "The specified ROM or state file is invalid.");
+		            _("The specified ROM or state file is invalid."));
 		status = FALSE;
 	}
 
@@ -489,7 +534,7 @@ gboolean tilem_calc_emulator_save_state(TilemCalcEmulator *emu, GError **err)
 			dname = g_filename_display_basename(emu->rom_file_name);
 			g_set_error(err, G_FILE_ERROR,
 			            g_file_error_from_errno(errnum),
-			            "Unable to open %s for writing: %s",
+			            _("Unable to open %s for writing: %s"),
 			            dname, g_strerror(errnum));
 			g_free(dname);
 			return FALSE;
@@ -507,7 +552,7 @@ gboolean tilem_calc_emulator_save_state(TilemCalcEmulator *emu, GError **err)
 		dname = g_filename_display_basename(emu->state_file_name);
 		g_set_error(err, G_FILE_ERROR,
 		            g_file_error_from_errno(errnum),
-		            "Unable to open %s for writing: %s",
+		            _("Unable to open %s for writing: %s"),
 		            dname, g_strerror(errnum));
 		g_free(dname);
 		if (romfile) fclose(romfile);
@@ -527,7 +572,7 @@ gboolean tilem_calc_emulator_save_state(TilemCalcEmulator *emu, GError **err)
 		dname = g_filename_display_basename(emu->rom_file_name);
 		g_set_error(err, G_FILE_ERROR,
 		            g_file_error_from_errno(errnum),
-		            "Error writing %s: %s",
+		            _("Error writing %s: %s"),
 		            dname, g_strerror(errnum));
 		g_free(dname);
 		fclose(savfile);
@@ -546,7 +591,7 @@ gboolean tilem_calc_emulator_save_state(TilemCalcEmulator *emu, GError **err)
 		dname = g_filename_display_basename(emu->state_file_name);
 		g_set_error(err, G_FILE_ERROR,
 		            g_file_error_from_errno(errnum),
-		            "Error writing %s: %s",
+		            _("Error writing %s: %s"),
 		            dname, g_strerror(errnum));
 		g_free(dname);
 		return FALSE;
@@ -587,7 +632,7 @@ void tilem_calc_emulator_run(TilemCalcEmulator *emu)
 	tilem_calc_emulator_unlock(emu);
 
 	if (!emu->z80_thread)
-		emu->z80_thread = g_thread_create(&tilem_em_main, emu, TRUE, NULL);
+		emu->z80_thread = g_thread_new("Emulator Main", &tilem_em_main, emu);
 }
 
 void tilem_calc_emulator_set_limit_speed(TilemCalcEmulator *emu,
@@ -601,7 +646,8 @@ void tilem_calc_emulator_set_grayscale(TilemCalcEmulator *emu,
 {
 	emu->grayscale = grayscale;
 
-	if (grayscale && emu->calc && !emu->glcd) {
+	if (grayscale && emu->calc && !emu->glcd
+	    && !(emu->calc->hw.flags & TILEM_CALC_HAS_COLOR)) {
 		tilem_calc_emulator_lock(emu);
 		emu->glcd = tilem_gray_lcd_new(emu->calc, GRAY_WINDOW_SIZE,
 		                               GRAY_SAMPLE_INT);
@@ -613,6 +659,52 @@ void tilem_calc_emulator_set_grayscale(TilemCalcEmulator *emu,
 		emu->glcd = NULL;
 		tilem_calc_emulator_unlock(emu);
 	}
+}
+
+void tilem_calc_emulator_set_audio(TilemCalcEmulator *emu,
+                                   gboolean enable)
+{
+	tilem_calc_emulator_lock(emu);
+	emu->enable_audio = enable;
+	emu->audio_error = FALSE;
+	tilem_calc_emulator_unlock(emu);
+}
+
+void tilem_calc_emulator_set_audio_volume(TilemCalcEmulator *emu,
+                                          double volume)
+{
+	tilem_calc_emulator_lock(emu);
+	emu->audio_volume = volume;
+	if (emu->audio_filter)
+		tilem_audio_filter_set_volume(emu->audio_filter, volume);
+	tilem_calc_emulator_unlock(emu);
+}
+
+void tilem_calc_emulator_set_audio_options(TilemCalcEmulator *emu,
+                                           const TilemAudioOptions *options)
+{
+	TilemAudioOptions opts = *options;
+	tilem_calc_emulator_lock(emu);
+	if (opts.driver != emu->audio_options.driver) {
+		g_free(emu->audio_options.driver);
+		opts.driver = (opts.driver ? g_strdup(opts.driver) : NULL);
+	}
+	emu->audio_options = opts;
+	emu->audio_options_changed = TRUE;
+	emu->audio_error = FALSE;
+	tilem_calc_emulator_unlock(emu);
+}
+
+void tilem_calc_emulator_set_link_cable(TilemCalcEmulator *emu,
+                                        const CableOptions *options)
+{
+	tilem_calc_emulator_lock(emu);
+	if (options)
+		emu->ext_cable_options = *options;
+	else
+		emu->ext_cable_options.model = CABLE_NUL;
+	emu->ext_cable_changed = TRUE;
+	tilem_calc_emulator_unlock(emu);
 }
 
 /* If currently recording a macro, record a keypress */
@@ -800,15 +892,16 @@ TilemAnimation * tilem_calc_emulator_get_screenshot(TilemCalcEmulator *emu,
 	g_return_val_if_fail(emu != NULL, NULL);
 	g_return_val_if_fail(emu->calc != NULL, NULL);
 
-	anim = tilem_animation_new(emu->calc->hw.lcdwidth,
-	                           emu->calc->hw.lcdheight);
-
 	tilem_calc_emulator_lock(emu);
 
 	if (grayscale && emu->glcd)
 		tilem_gray_lcd_get_frame(emu->glcd, emu->tmp_lcd_buffer);
 	else
 		tilem_lcd_get_frame(emu->calc, emu->tmp_lcd_buffer);
+
+	anim = tilem_animation_new(emu->tmp_lcd_buffer->width,
+	                           emu->tmp_lcd_buffer->height,
+	                           emu->tmp_lcd_buffer->format);
 
 	tilem_animation_append_frame(anim, emu->tmp_lcd_buffer, 1);
 
@@ -825,8 +918,10 @@ void tilem_calc_emulator_begin_animation(TilemCalcEmulator *emu,
 
 	tilem_calc_emulator_lock(emu);
 	cancel_animation(emu);
-	emu->anim = tilem_animation_new(emu->calc->hw.lcdwidth,
-	                                emu->calc->hw.lcdheight);
+	tilem_lcd_get_frame(emu->calc, emu->tmp_lcd_buffer);
+	emu->anim = tilem_animation_new(emu->tmp_lcd_buffer->width,
+	                           emu->tmp_lcd_buffer->height,
+	                           emu->tmp_lcd_buffer->format);
 	emu->anim_grayscale = grayscale;
 	tilem_calc_emulator_unlock(emu);
 }
@@ -858,9 +953,9 @@ int tilem_calc_emulator_prompt_open_rom(TilemCalcEmulator *emu)
 	else
 		dir = g_get_current_dir();
 
-	filename = prompt_open_file("Open Calculator", GTK_WINDOW(get_toplevel(emu)),
-	                            dir, "ROM files", "*.rom;*.clc;*.bin",
-	                            "All files", "*", NULL);
+	filename = prompt_open_file(_("Open Calculator"), GTK_WINDOW(get_toplevel(emu)),
+	                            dir, _("ROM files"), "*.rom;*.clc;*.bin",
+	                            _("All files"), "*", NULL);
 	g_free(dir);
 	if (!filename)
 		return 0;
@@ -878,7 +973,7 @@ int tilem_calc_emulator_prompt_open_rom(TilemCalcEmulator *emu)
 
 	if (err) {
 		messagebox01(GTK_WINDOW(get_toplevel(emu)), GTK_MESSAGE_ERROR,
-		             "Unable to load calculator state",
+		             _("Unable to load calculator state"),
 		             "%s", err->message);
 		g_error_free(err);
 		return -1;

@@ -1,8 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2010-2011 Thibault Duponchelle
- * Copyright (c) 2011 Benjamin Moody
+ * Copyright (c) 2010-2017 Thibault Duponchelle
+ * Copyright (c) 2011-2012 Benjamin Moody
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -45,12 +45,12 @@ static void progress_bar_update_activity(TilemLinkProgress *linkpb)
 	g_free(s);
 
 	if (linkpb->emu->paused && linkpb->emu->pbar_status) {
-		s = g_strconcat(linkpb->emu->pbar_status, " (paused)", NULL);
+		s = g_strconcat(linkpb->emu->pbar_status, " ", _("(paused)"), NULL);
 		gtk_label_set_text(linkpb->status_lbl, s);
 		g_free(s);
 	}
 	else if (linkpb->emu->paused)
-		gtk_label_set_text(linkpb->status_lbl, "(paused)");
+		gtk_label_set_text(linkpb->status_lbl, _("(paused)"));
 	else
 		gtk_label_set_text(linkpb->status_lbl, linkpb->emu->pbar_status);
 
@@ -88,7 +88,7 @@ static void progress_bar_init(TilemLinkProgress* linkpb)
 		parent = NULL;
 
 	pw = gtk_dialog_new_with_buttons("", GTK_WINDOW(parent), 0,
-	                                 GTK_STOCK_CANCEL,
+	                                 _("Cancel"),
 	                                 GTK_RESPONSE_CANCEL,
 	                                 NULL);
 	linkpb->window = pw;
@@ -97,12 +97,12 @@ static void progress_bar_init(TilemLinkProgress* linkpb)
 
 	vbox = gtk_dialog_get_content_area(GTK_DIALOG(pw));
 
-	vbox2 = gtk_vbox_new(FALSE, 6);
+	vbox2 = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
 	gtk_container_set_border_width(GTK_CONTAINER(vbox2), 6);
 
 	lbl = gtk_label_new(NULL);
 	gtk_label_set_width_chars(GTK_LABEL(lbl), 35);
-	gtk_misc_set_alignment(GTK_MISC(lbl), 0.0, 0.5);
+	gtk_widget_set_halign(lbl, GTK_ALIGN_CENTER);
 	gtk_box_pack_start(GTK_BOX(vbox2), lbl, FALSE, FALSE, 0);
 	linkpb->title_lbl = GTK_LABEL(lbl);
 
@@ -111,7 +111,7 @@ static void progress_bar_init(TilemLinkProgress* linkpb)
 	linkpb->progress_bar = GTK_PROGRESS_BAR(pb);
 
 	lbl = gtk_label_new(NULL);
-	gtk_misc_set_alignment(GTK_MISC(lbl), 0.0, 0.5);
+	gtk_widget_set_halign(lbl, GTK_ALIGN_CENTER);
 	gtk_box_pack_start(GTK_BOX(vbox2), lbl, FALSE, FALSE, 0);
 	linkpb->status_lbl = GTK_LABEL(lbl);
 

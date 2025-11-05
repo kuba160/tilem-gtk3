@@ -1,11 +1,13 @@
 /*
  *   skinedit - a skin editor for the TiEmu emulator
  *   Copyright (C) 2002 Julien BLACHE <jb@tilp.info>
+ *   Copyright (C) 2012 Benjamin Moody
+ *   Copyright (C) 2017 Thibault Duponchelle
  *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
+ *   This program is free software; you can redistribute it and/or
+ *   modify it under the terms of the GNU General Public License
+ *   as published by the Free Software Foundation; either version 2
+ *   of the License, or (at your option) any later version.
  *
  *   This program is distributed in the hope that it will be useful,
  *   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -14,7 +16,7 @@
  *
  *   You should have received a copy of the GNU General Public License
  *   along with this program; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
 /*
@@ -40,6 +42,7 @@ contra-sh :
 
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
+#include "gettext.h"
 
 #define SKIN_ERROR g_quark_from_static_string("skin-error")
 enum {
@@ -56,12 +59,15 @@ int skin_get_type(SKIN_INFOS *si, const char *filename)
 
 	fp = g_fopen(filename, "rb");
 	if (fp == NULL) {
-		fprintf(stderr, "Unable to open this file: <%s>\n", filename);
+		fprintf(stderr, _("Unable to open this file: <%s>\n"), filename);
 		return -1;
 	}
 
 	memset(str, 0, sizeof(str));
-	fread(str, 16, 1, fp);
+	if(!fread(str, 16, 1, fp)) { 
+		fprintf(stderr, _("Bad skin format\n"));
+		return -1;
+	}
 
 	if(!strncmp(str, "TiEmu v2.00", 16))
 		si->type = SKIN_TYPE_TIEMU;
@@ -72,7 +78,7 @@ int skin_get_type(SKIN_INFOS *si, const char *filename)
 	else if(!strncmp(str, "VTIv2.5 ", 8))
 		si->type = SKIN_TYPE_VTI;
 	else {
-		fprintf(stderr, "Bad skin format\n");
+		fprintf(stderr, _("Bad skin format\n"));
 		return -1;
 	}
 
@@ -91,19 +97,25 @@ int skin_read_header(SKIN_INFOS *si, FILE *fp)
 	char str[17];
 
 	/* signature & offsets */
-	fread(str, 16, 1, fp);
+	if(!fread(str, 16, 1, fp))
+		return -1;
+
 	if ((strncmp(str, "TilEm v2.00", 16))
 	    && (strncmp(str, "TiEmu v2.00", 16))) {
 		return -1;
 	}
-	fread(&endian, 4, 1, fp);
-	fread(&jpeg_offset, 4, 1, fp);
+	if(!fread(&endian, 4, 1, fp)) 
+		return -1;
+	if(!fread(&jpeg_offset, 4, 1, fp)) 
+		return -1;
 
 	if (endian != ENDIANNESS_FLAG)
 		jpeg_offset = GUINT32_SWAP_LE_BE(jpeg_offset);
 
 	/* Skin name */
-	fread(&length, 4, 1, fp);
+	if(!fread(&length, 4, 1, fp)) 
+		return -1;
+
 	if (endian != ENDIANNESS_FLAG)
 		length = GUINT32_SWAP_LE_BE(length);
 
@@ -113,11 +125,13 @@ int skin_read_header(SKIN_INFOS *si, FILE *fp)
 			return -1;
 
 		memset(si->name, 0, length + 1);
-		fread(si->name, length, 1, fp);
+		if(!fread(si->name, length, 1, fp)) 
+			return -1;
 	}
 
 	/* Skin author */
-	fread(&length, 4, 1, fp);
+	if(!fread(&length, 4, 1, fp))
+		return -1;
 	if (endian != ENDIANNESS_FLAG)
 		length = GUINT32_SWAP_LE_BE(length);
 
@@ -127,25 +141,33 @@ int skin_read_header(SKIN_INFOS *si, FILE *fp)
 			return -1;
 
 		memset(si->author, 0, length + 1);
-		fread(si->author, length, 1, fp);
+		if(!fread(si->author, length, 1, fp))
+			return -1;
 	}
 
 	/* LCD colors */
-	fread(&si->colortype, 4, 1, fp);
-	fread(&si->lcd_white, 4, 1, fp);
-	fread(&si->lcd_black, 4, 1, fp);
+	if(!fread(&si->colortype, 4, 1, fp) ||
+	   !fread(&si->lcd_white, 4, 1, fp) ||
+	   !fread(&si->lcd_black, 4, 1, fp)) {
+		return -1;
+	}
+
 
 	/* Calc type */
-	fread(si->calc, 8, 1, fp);
+	if(!fread(si->calc, 8, 1, fp))
+		return -1;
 
 	/* LCD position */
-	fread(&si->lcd_pos.left, 4, 1, fp);
-	fread(&si->lcd_pos.top, 4, 1, fp);
-	fread(&si->lcd_pos.right, 4, 1, fp);
-	fread(&si->lcd_pos.bottom, 4, 1, fp);
+	if(!fread(&si->lcd_pos.left, 4, 1, fp) || 
+	   !fread(&si->lcd_pos.top, 4, 1, fp) ||
+	   !fread(&si->lcd_pos.right, 4, 1, fp) ||
+	   !fread(&si->lcd_pos.bottom, 4, 1, fp)) {
+		return -1;
+	}
 
 	/* Number of RECT struct to read */
-	fread(&length, 4, 1, fp);
+	if(!fread(&length, 4, 1, fp))
+		return -1;
 	if (endian != ENDIANNESS_FLAG)
 		length = GUINT32_SWAP_LE_BE(length);
 
@@ -153,10 +175,12 @@ int skin_read_header(SKIN_INFOS *si, FILE *fp)
 		return -1;
 
 	for (i = 0; i < (int)length; i++) {
-		fread(&si->keys_pos[i].left, 4, 1, fp);
-		fread(&si->keys_pos[i].top, 4, 1, fp);
-		fread(&si->keys_pos[i].right, 4, 1, fp);
-		fread(&si->keys_pos[i].bottom, 4, 1, fp);
+		if(!fread(&si->keys_pos[i].left, 4, 1, fp) ||
+		   !fread(&si->keys_pos[i].top, 4, 1, fp) ||
+		   !fread(&si->keys_pos[i].right, 4, 1, fp) ||
+		   !fread(&si->keys_pos[i].bottom, 4, 1, fp)) {
+			return -1;
+		}
 	}
 
 	if (endian != ENDIANNESS_FLAG) {
@@ -221,7 +245,7 @@ int skin_read_image(SKIN_INFOS *si, FILE *fp, GError **err)
 	si->raw = gdk_pixbuf_loader_get_pixbuf(loader);
 	if(si->raw == NULL) {
 		g_set_error(err, SKIN_ERROR, SKIN_ERROR_INVALID,
-		            "Unable to load background image");
+		            _("Unable to load background image"));
 		g_object_unref(loader);
 		return -1;
 	}
@@ -253,7 +277,7 @@ int skin_load(SKIN_INFOS *si, const char *filename, GError **err)
 		errnum = errno;
 		dname = g_filename_display_basename(filename);
 		g_set_error(err, G_FILE_ERROR, g_file_error_from_errno(errnum),
-		            "Unable to open %s for reading: %s",
+		            _("Unable to open %s for reading: %s"),
 		            dname, g_strerror(errnum));
 		g_free(dname);
 		return -1;
@@ -264,7 +288,7 @@ int skin_load(SKIN_INFOS *si, const char *filename, GError **err)
 		fclose(fp);
 		dname = g_filename_display_basename(filename);
 		g_set_error(err, SKIN_ERROR, SKIN_ERROR_INVALID,
-		            "The file %s is not a valid skin.", dname);
+		            _("The file %s is not a valid skin."), dname);
 		g_free(dname);
 		return -1;
 	}

@@ -1,8 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2010-2011 Thibault Duponchelle
- * Copyright (c) 2010-2011 Benjamin Moody
+ * Copyright (c) 2010-2013 Thibault Duponchelle
+ * Copyright (c) 2010-2013 Benjamin Moody
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -19,10 +19,12 @@
  */
 
 #include "animation.h"
+#include "audiodev.h"
 #include "emulator.h"
 #include "skinops.h"
 #include "emuwin.h"
 #include "debugger.h"
+#include "gettext.h"
 
 #include "gtk-compat.h"
 
@@ -68,6 +70,10 @@ typedef struct _TilemScreenshotDialog {
 	GtkWidget* animation_speed;	/* A scale for the speed of the animation */
 	GtkWidget* background_color;	/* Color chooser : Color used for pixel-off */
 	GtkWidget* foreground_color;	/* Color chooser : Color used for pixel-on */
+	GtkWidget* dither_mode_combo;	/* Dithering mode for color GIFs */
+	GtkWidget* foreground_label;
+	GtkWidget* background_label;
+	GtkWidget* dither_mode_label;
 
 	TilemAnimation *current_anim;
 	gboolean current_anim_grayscale;
@@ -102,8 +108,9 @@ typedef struct _TilemLinkProgress {
 	GtkWidget* window;
 } TilemLinkProgress;
 
-#define LABEL_X_ALIGN 0.0
+/* ###### main.c ##### */
 
+void popup_ask_save(TilemEmulatorWindow *ewin);
 
 /* ###### event.c ##### */
 
@@ -128,6 +135,9 @@ gboolean key_press_event(GtkWidget* w, GdkEventKey *event, gpointer data);
 /* Key-release event */
 gboolean key_release_event(GtkWidget* w, GdkEventKey *event, gpointer data);
 
+/* Focus-out event */
+gboolean focus_out_event(GtkWidget* w, GdkEventFocus *event, gpointer data);
+
 /* Pop up menu on main window */
 gboolean popup_menu_event(GtkWidget* w, gpointer data);
 
@@ -150,6 +160,18 @@ void redraw_screen(TilemEmulatorWindow *ewin);
 
 /* Run preferences dialog. */
 void tilem_preferences_dialog(TilemEmulatorWindow *ewin);
+
+
+/* #### linksetup.c #### */
+
+/* Run link setup dialog. */
+void tilem_link_setup_dialog(TilemEmulatorWindow *ewin);
+
+
+/* #### audiosetup.c #### */
+
+/* Run audio setup dialog. */
+void tilem_audio_setup_dialog(TilemEmulatorWindow *ewin);
 
 
 /* ##### address.c ##### */
@@ -383,4 +405,3 @@ void tilem_receive_dialog_free(TilemReceiveDialog *rcvdlg);
    list.  Display the dialog if it's currently hidden. */
 void tilem_receive_dialog_update(TilemReceiveDialog *rcvdlg,
                                  GSList *varlist);
-

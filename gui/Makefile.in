@@ -4,6 +4,7 @@ datarootdir = @datarootdir@
 bindir = @bindir@
 datadir = @datadir@
 pkgdatadir = @datadir@/tilem2
+localedir = @localedir@
 mandir = @mandir@
 
 top_builddir = @top_builddir@
@@ -27,6 +28,9 @@ WINDRES = @WINDRES@
 GTK_CFLAGS = @GTK_CFLAGS@
 GTK_LIBS = @GTK_LIBS@
 
+SDL_CFLAGS = @SDL_CFLAGS@
+SDL_LIBS = @SDL_LIBS@
+
 TICALCS_CFLAGS = @TICALCS_CFLAGS@
 TICALCS_LIBS = @TICALCS_LIBS@
 
@@ -37,7 +41,8 @@ TILEMDB_CFLAGS = -I$(top_srcdir)/db
 TILEMDB_LIBS = -L$(top_builddir)/db -ltilemdb
 
 DEF_SHARE_DIR = -DSHARE_DIR=\"$(pkgdatadir)\" \
-	-DUNINSTALLED_SHARE_DIR=\"$(top_srcdir)/data\"
+	-DUNINSTALLED_SHARE_DIR=\"$(top_srcdir)/data\" \
+	-DLOCALE_DIR=\"$(localedir)\"
 
 gui_extra_objects = @gui_extra_objects@
 
@@ -45,9 +50,12 @@ objects = tilem2.o \
 	address.o \
 	animatedgif.o \
 	animation.o \
+	audiodev.o \
+	audiosetup.o \
 	breakpoints.o \
 	config.o \
 	charmap.o \
+	colorquant.o \
 	debugger.o \
 	disasmview.o \
 	emulator.o \
@@ -68,6 +76,7 @@ objects = tilem2.o \
 	memory.o \
 	pbar.o \
 	preferences.o \
+	linksetup.o \
 	sendfile.o \
 	screenshot.o \
 	skinops.o \
@@ -77,7 +86,8 @@ objects = tilem2.o \
 	tool.o \
 	$(gui_extra_objects)
 
-libs = $(TILEMDB_LIBS) $(TILEMCORE_LIBS) $(GTK_LIBS) $(TICALCS_LIBS) $(LIBS)
+libs = $(TILEMDB_LIBS) $(TILEMCORE_LIBS) $(GTK_LIBS) $(TICALCS_LIBS) \
+	$(SDL_LIBS) $(LIBS)
 
 compile = $(CC) -I$(top_builddir) -I$(srcdir) $(CFLAGS) $(CPPFLAGS) $(DEFS) \
 	$(TILEMCORE_CFLAGS) $(TILEMDB_CFLAGS) \
@@ -87,12 +97,12 @@ link = $(CC) $(CFLAGS) $(LDFLAGS) $(GUI_LDFLAGS)
 
 common_headers = ../config.h ../emu/tilem.h ../db/tilemdb.h \
 	gui.h emulator.h debugger.h emuwin.h skinops.h animation.h \
-	gtk-compat.h msgbox.h fixedtreeview.h
+	audiodev.h gtk-compat.h gettext.h msgbox.h fixedtreeview.h
 
 all: tilem2@EXEEXT@
 
 #Main emulator GUI
-tilem2@EXEEXT@: $(objects) ../emu/libtilemcore.a
+tilem2@EXEEXT@: $(objects) ../emu/libtilemcore.a ../db/libtilemdb.a
 	$(link) -o tilem2@EXEEXT@ $(objects) $(libs)
 
 tilem2.o: tilem2.c icons.h files.h $(common_headers)
@@ -127,7 +137,7 @@ keypaddlg.o: keypaddlg.c $(common_headers)
 	$(compile) -c $(srcdir)/keypaddlg.c
 
 # Memory management and messages
-memory.o: memory.c ../emu/tilem.h
+memory.o: memory.c gettext.h ../emu/tilem.h
 	$(compile) -c $(srcdir)/memory.c
 
 # Emulator management
@@ -150,8 +160,16 @@ event.o: event.c $(common_headers)
 preferences.o: preferences.c $(common_headers)
 	$(compile) -c $(srcdir)/preferences.c 
 
+# External link setup dialog
+linksetup.o: linksetup.c $(common_headers)
+	$(compile) -c $(srcdir)/linksetup.c
+
+# Audio setup dialog
+audiosetup.o: audiosetup.c $(common_headers)
+	$(compile) -c $(srcdir)/audiosetup.c
+
 # Open skin (skn format file) originally created by Julien Blache and Romain Lievins
-skinops.o: skinops.c skinops.h 
+skinops.o: skinops.c skinops.h gettext.h
 	$(compile) -c $(srcdir)/skinops.c
 
 # Popups and other stuff
@@ -187,9 +205,16 @@ pbar.o: pbar.c $(common_headers)
 	$(compile) -c $(srcdir)/pbar.c
 
 # Screenshot/animation recording
-animation.o: animation.c $(common_headers)
+animation.o: animation.c colorquant.h $(common_headers)
 	$(compile) -c $(srcdir)/animation.c
 
+# Color quantization
+colorquant.o: colorquant.c colorquant.h $(common_headers)
+	$(compile) -c $(srcdir)/colorquant.c
+
+# Audio output
+audiodev.o: audiodev.c $(common_headers)
+	$(compile) $(SDL_CFLAGS) -c $(srcdir)/audiodev.c
 
 # Shared/configuration files
 files.o: files.c files.h
@@ -216,15 +241,15 @@ sendfile.o: sendfile.c emucore.h $(common_headers)
 	$(compile) -c $(srcdir)/sendfile.c
 
 # File open/save dialogs
-filedlg.o: filedlg.c filedlg.h
+filedlg.o: filedlg.c filedlg.h gettext.h
 	$(compile) -c $(srcdir)/filedlg.c
 
 # Fixed-width tree view
-fixedtreeview.o: fixedtreeview.c fixedtreeview.h
+fixedtreeview.o: fixedtreeview.c fixedtreeview.h gettext.h
 	$(compile) -c $(srcdir)/fixedtreeview.c
 
 # TI-81 program file functions
-ti81prg.o: ti81prg.c ti81prg.h ../emu/tilem.h
+ti81prg.o: ti81prg.c ti81prg.h gettext.h ../emu/tilem.h
 	$(compile) -c $(srcdir)/ti81prg.c
 
 # Character conversion

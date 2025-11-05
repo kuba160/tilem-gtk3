@@ -1,7 +1,7 @@
 /*
  * libtilemcore - Graphing calculator emulation library
  *
- * Copyright (C) 2009-2011 Benjamin Moody
+ * Copyright (C) 2009-2013 Benjamin Moody
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "tilem.h"
+#include "gettext.h"
 
 static int certificate_valid(byte* cert)
 {
@@ -78,10 +79,10 @@ static int certificate_valid(byte* cert)
 
 void tilem_calc_fix_certificate(TilemCalc* calc, byte* cert,
                                 int app_start, int app_end,
+                                unsigned insttab_offset,
                                 unsigned exptab_offset)
 {
 	int i, base, max_apps, page;
-	unsigned insttab_offset = 0x1fe0;
 
 	/* If the ROM was dumped from an unpatched OS, the certificate
 	   needs to be patched for some calculator functions to
@@ -98,7 +99,7 @@ void tilem_calc_fix_certificate(TilemCalc* calc, byte* cert,
 		return;
 	}
 
-	tilem_message(calc, "Repairing certificate area...");
+	tilem_message(calc, _("Repairing certificate area..."));
 
 	memset(cert, 0xff, 16384);
 
@@ -125,12 +126,14 @@ void tilem_calc_fix_certificate(TilemCalc* calc, byte* cert,
 		    || calc->mem[(page << 14) + 1] != 0x0f)
 			continue;
 
-		tilem_message(calc, "Found application at page %02x (index %d)",
+		tilem_message(calc, _("Found application at page %02x (index %d)"),
 		              page, i);
 
 		cert[insttab_offset + ((i + 1) / 8)] &= ~(1 << ((i + 1) % 8));
 
-		cert[exptab_offset + 2 * i] = 0x80;
-		cert[exptab_offset + 2 * i + 1] = 0x00;
+		if (exptab_offset) {
+			cert[exptab_offset + 2 * i] = 0x80;
+			cert[exptab_offset + 2 * i + 1] = 0x00;
+		}
 	}
 }

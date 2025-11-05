@@ -1,8 +1,8 @@
 /*
  * TilEm II
  *
- * Copyright (c) 2010-2011 Thibault Duponchelle
- * Copyright (c) 2010-2011 Benjamin Moody
+ * Copyright (c) 2010-2017 Thibault Duponchelle
+ * Copyright (c) 2010-2012 Benjamin Moody
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -141,13 +141,13 @@ static void get_device_pointer(GdkWindow *win, GdkDevice *dev,
 	gdouble *axes;
 	int i;
 
-	axes = g_new(gdouble, dev->num_axes);
+	axes = g_new(gdouble, gdk_device_get_n_axes(dev));
 	gdk_device_get_state(dev, win, axes, mask);
 
-	for (i = 0; i < dev->num_axes; i++) {
-		if (x && dev->axes[i].use == GDK_AXIS_X)
+	for (i = 0; i < gdk_device_get_n_axes(dev); i++) {
+		if (x && gdk_device_get_axis_use(dev, i) == GDK_AXIS_X)
 			*x = axes[i];
-		else if (y && dev->axes[i].use == GDK_AXIS_Y)
+		else if (y && gdk_device_get_axis_use(dev, i) == GDK_AXIS_Y)
 			*y = axes[i];
 	}
 
@@ -159,8 +159,8 @@ void show_about()
 {
 	GtkWidget *dialog = gtk_about_dialog_new();
 	gtk_about_dialog_set_version(GTK_ABOUT_DIALOG(dialog), "2.0"); 
-	gtk_about_dialog_set_copyright(GTK_ABOUT_DIALOG(dialog), "(c) Benjamin Moody\n(c) Thibault Duponchelle\n(c) Luc Bruant\n");
-	gtk_about_dialog_set_comments(GTK_ABOUT_DIALOG(dialog), "TilEm is a TI Linux Emulator.\n It emulates all current z80 models.\n TI73, TI76, TI81, TI82, TI83(+)(SE), TI84+(SE), TI85 and TI86 ;D");
+	gtk_about_dialog_set_copyright(GTK_ABOUT_DIALOG(dialog), _("(c) Benjamin Moody\n(c) Thibault Duponchelle\n(c) Luc Bruant\n"));
+	gtk_about_dialog_set_comments(GTK_ABOUT_DIALOG(dialog), _("TilEm is a TI Linux Emulator.\n It emulates all current z80 models.\n TI73, TI76, TI81, TI82, TI83(+)(SE), TI84+(SE), TI85 and TI86 ;D"));
 	gtk_about_dialog_set_website(GTK_ABOUT_DIALOG(dialog), "http://lpg.ticalc.org/prj_tilem/");
 
 	/* Add the logo */	
@@ -289,7 +289,7 @@ static TilemKeyBinding* find_key_binding(TilemCalcEmulator* emu,
 	GdkModifierType consumed, mods;
 	TilemKeyBinding *kb;
 
-	dpy = gdk_drawable_get_display(event->window);
+	dpy = gdk_window_get_display(event->window);
 	km = gdk_keymap_get_for_display(dpy);
 
 	/* determine the relevant set of modifiers */
@@ -349,11 +349,9 @@ gboolean key_press_event(G_GNUC_UNUSED GtkWidget* w, GdkEventKey* event,
 	return TRUE;
 }
 
-/* Key-release event */
-gboolean key_release_event(G_GNUC_UNUSED GtkWidget* w, GdkEventKey* event,
-                           gpointer data)
+/* Keyboard key released (keycode 0 = all keys) */
+static void release_keycode(TilemEmulatorWindow *ewin, int keycode)
 {
-	TilemEmulatorWindow *ewin = data;
 	int i;
 
 	/* Check if the key that was just released was one that
@@ -361,17 +359,37 @@ gboolean key_release_event(G_GNUC_UNUSED GtkWidget* w, GdkEventKey* event,
 	   event->keyval; modifiers may have changed since the key was
 	   pressed.) */
 	for (i = 0; i < 64; i++) {
-		if (ewin->keypress_keycodes[i] == event->hardware_keycode) {
+		if (keycode == 0
+		    ? ewin->keypress_keycodes[i] != 0
+		    : ewin->keypress_keycodes[i] == keycode) {
 			tilem_calc_emulator_release_key(ewin->emu, i);
 			ewin->keypress_keycodes[i] = 0;
 		}
 	}
 
-	if (ewin->sequence_keycode == event->hardware_keycode) {
+	if (keycode == 0
+	    ? ewin->sequence_keycode != 0
+	    : ewin->sequence_keycode == keycode) {
 		tilem_calc_emulator_release_queued_key(ewin->emu);
 		ewin->sequence_keycode = 0;
 	}
+}
 
+/* Key-release event */
+gboolean key_release_event(G_GNUC_UNUSED GtkWidget* w, GdkEventKey* event,
+                           gpointer data)
+{
+	TilemEmulatorWindow *ewin = data;
+	release_keycode(ewin, event->hardware_keycode);
+	return FALSE;
+}
+
+/* Keyboard focus lost */
+gboolean focus_out_event(G_GNUC_UNUSED GtkWidget* w,
+                         G_GNUC_UNUSED GdkEventFocus *event, gpointer data)
+{
+	TilemEmulatorWindow *ewin = data;
+	release_keycode(ewin, 0);
 	return FALSE;
 }
 
@@ -386,7 +404,7 @@ static void place_menu(GtkMenu *menu, gint *x, gint *y,
 	win = gtk_widget_get_window(w);
 	gdk_window_get_origin(win, x, y);
 
-	screen = gdk_drawable_get_screen(win);
+	screen = gdk_window_get_screen(win);
 	n = gdk_screen_get_monitor_at_point(screen, *x, *y);
 	gtk_menu_set_monitor(menu, n);
 

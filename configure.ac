@@ -1,5 +1,5 @@
 AC_PREREQ(2.67)
-AC_INIT([TilEm], [2.0], [tilem-devel@lists.sourceforge.net],
+AC_INIT([TilEm], [2.1], [tilem-devel@lists.sourceforge.net],
   [tilem], [http://tilem.sourceforge.net/])
 AC_CONFIG_SRCDIR([emu/tilem.h])
 
@@ -16,6 +16,8 @@ if test "x$GCC" = "xyes" ; then
     OPT_CFLAGS="-O3"
   fi
 fi
+
+#CFLAGS+=" -w"
 
 AC_CHECK_TOOL(AR, [ar], [false])
 AC_ARG_VAR(AR, [Static library archiver])
@@ -49,7 +51,7 @@ m4_define(with_flags, [
 
 # GLib and GTK+
 
-PKG_CHECK_MODULES(GTK, gtk+-2.0 >= 2.6.0
+PKG_CHECK_MODULES(GTK, gtk+-3.0 >= 3.4
                        glib-2.0 >= 2.12.0
                        gthread-2.0)
 
@@ -116,6 +118,43 @@ ticalcs2.pc to your PKG_CONFIG_PATH environment variable, or set the
 TICALCS_CFLAGS and TICALCS_LIBS environment variables by hand.])
 fi
 
+with_flags(TICALCS,
+  [ AC_CHECK_FUNCS([ticables_cable_set_raw]) ])
+
+# SDL
+
+AC_ARG_WITH([sdl],
+  AS_HELP_STRING([--with-sdl], [Use SDL for audio output]),
+  [], [ with_sdl=auto ])
+
+if test "x$with_sdl" != "xno" ; then
+  PKG_CHECK_MODULES(SDL, sdl, [ have_sdl=maybe ], [ have_sdl=no ])
+  if test "x$have_sdl" = "xmaybe" ; then
+    with_flags(SDL,
+      [ AC_CHECK_FUNC(SDL_AudioInit, [ have_sdl=yes ], [ have_sdl=no ]) ])
+  fi
+fi
+if test "x$have_sdl" = "xyes" ; then
+  AC_DEFINE(HAVE_LIBSDL, 1, [Define to 1 if you have the SDL library.])
+  AC_DEFINE(ENABLE_AUDIO, 1, [Define to 1 to enable audio support.])
+else
+  if test "x$with_sdl" = "xyes" ; then
+    AC_MSG_ERROR([SDL not found or not usable.])
+  fi
+  SDL_CFLAGS=
+  SDL_LIBS=
+fi
+
+# Gettext
+
+# List of all available languages
+ALL_LINGUAS='fr'
+
+GETTEXT_PACKAGE=tilem2
+AC_SUBST(GETTEXT_PACKAGE)
+AM_GLIB_GNU_GETTEXT
+AC_SUBST(LINGUAS)
+
 # Tools used for building the Windows installer
 
 if test "x$gtk_target" = "xwin32" ; then
@@ -158,6 +197,18 @@ AC_C_INLINE
 AC_C_RESTRICT
 AC_TYPE_UINTPTR_T
 
+# Checks for standard library functions
+
+AC_SEARCH_LIBS([pow], [m])
+AC_CHECK_FUNCS([lround])
+
+AC_MSG_CHECKING([for __sync_synchronize])
+AC_LINK_IFELSE([AC_LANG_PROGRAM([], [__sync_synchronize();])],
+  [AC_MSG_RESULT([yes])
+   AC_DEFINE(HAVE___SYNC_SYNCHRONIZE, 1,
+     [Define to 1 if you have the the `__sync_synchronize' function.])],
+  [AC_MSG_RESULT([no])])
+
 # Output
 
 AC_CONFIG_HEADERS([config.h])
@@ -167,6 +218,7 @@ AC_CONFIG_FILES([Makefile
                  data/Makefile
                  gui/Makefile
                  gui/tilem2.rc
+                 po/Makefile.in
                  installer/win32/Makefile
                  installer/win32/installer.nsi])
 AC_OUTPUT
