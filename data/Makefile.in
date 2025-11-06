@@ -46,6 +46,10 @@ install:
 	set -e ; for i in $(srcdir)/symbols/*.sym ; do \
 	 $(INSTALL_DATA) $$i $(DESTDIR)$(pkgdatadir)/symbols ; \
 	done
+	$(INSTALL) -d -m 755 $(DESTDIR)$(pkgdatadir)/pixs
+	set -e ; for i in $(srcdir)/pixs/*.png ; do \
+	 $(INSTALL_DATA) $$i $(DESTDIR)$(pkgdatadir)/pixs ; \
+	done
 	$(INSTALL) -d -m 755 $(DESTDIR)$(pkgdatadir)/skins
 	set -e ; for i in $(srcdir)/skins/*.skn ; do \
 	 $(INSTALL_DATA) $$i $(DESTDIR)$(pkgdatadir)/skins ; \
